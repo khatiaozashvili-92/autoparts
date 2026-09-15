@@ -26,10 +26,12 @@
    │  Notifications · Reviews · Admin · Analytics          │
    └───┬────────────┬────────────┬─────────────┬───────────┘
        ↓            ↓            ↓             ↓
- ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────────┐
- │PostgreSQL│ │  Redis   │ │OpenSearch│ │ S3-compatible   │
- │  (SoR)   │ │cache·lock│ │  search  │ │ object storage  │
- └──────────┘ └──────────┘ └──────────┘ └─────────────────┘
+ ┌───────────────────────────────┐ ┌─────────────────┐
+ │         PostgreSQL            │ │ S3-compatible   │
+ │  SoR · search · locks · jobs  │ │ object storage  │
+ └───────────────────────────────┘ └─────────────────┘
+     Redis და OpenSearch გათვალისწინებულია, მაგრამ MVP მათ არ იყენებს
+     (ADR-010, ADR-012) — infra/docker-compose.yml მაინც ინახავს მათ.
        ↑
  ┌─────┴──────────────────────────────────────────────┐
  │        Provider Abstraction Layer                  │
@@ -58,9 +60,7 @@ external provider-ზე დამოკიდებული კოდი **ა
 autoparts/
 ├── apps/
 │   ├── api/                 NestJS backend
-│   ├── web/                 Next.js — customer
-│   ├── partner/             Next.js — partner dashboard
-│   ├── admin/               Next.js — admin panel
+│   ├── web/                 Next.js — customer + /partner + /admin (ADR-013)
 │   └── mobile/              React Native (Expo)
 ├── packages/
 │   ├── core/                domain types, enums, Money, გაზიარებული ლოგიკა
@@ -122,9 +122,9 @@ exported service-ს. ეს ინარჩუნებს იმის შე�
 | Backend | **NestJS + TypeScript** | modular architecture — §69-ის რეკომენდაცია |
 | DB წვდომა | `pg` + raw SQL migration-ები | schema დგას generated columns/CHECK-ებზე, რასაც ORM-ის schema ენა ვერ გამოხატავს — [ADR-008](00-index-and-decisions.md) |
 | Database | PostgreSQL 16 | System of Record |
-| Search | OpenSearch 2.x | ka/en analyzers, synonyms, typo tolerance |
-| Cache / Lock | Redis 7 | session, rate limit, **reservation lock** |
-| Queue | BullMQ (Redis-ზე) | sync, notification, expiry jobs |
+| Search | **PostgreSQL** (`tsvector` + `pg_trgm`) | ka/en, სინონიმები, typo tolerance — [ADR-010](00-index-and-decisions.md). OpenSearch რჩება ინტერფეისის უკან |
+| Lock | **PostgreSQL advisory locks** | reservation-ის სერიალიზაცია — [ADR-012](00-index-and-decisions.md) |
+| Jobs | **`setInterval` + advisory lock** | reservation/no-show sweep; ორივე იდემპოტენტურია და სისწორე მათზე არ დგას |
 | Storage | S3-compatible | პროდუქტის სურათები, CSV ატვირთვები |
 | Observability | OpenTelemetry + structured JSON logs | §95 |
 
@@ -196,7 +196,7 @@ Query (ka/en/OEM/SKU) + vehicle_id + filters
    ↓
 Query normalization — transliteration, synonyms, typo tolerance
    ↓
-OpenSearch — candidate products (fitment pre-filter ინდექსიდან)
+search_documents — candidate products (tsvector / trigram)
    ↓
 Fitment Engine — verdict თითოეულ კანდიდატზე
    ↓
@@ -222,7 +222,7 @@ Integration Layer — normalization
    ↓
 inventory + offers (ჩვენი DB)
    ↓
-OpenSearch index (fast search)
+search_documents (fast search)
    ↓
 ... მომხმარებელი ირჩევს ...
    ↓
@@ -232,7 +232,8 @@ Reserve → Pay
 ```
 
 ### 5.3 Reservation (§28)
-15-წუთიანი reservation Redis lock-ით + `reservations` ცხრილით.
+15-წუთიანი reservation `pg_advisory_xact_lock` + `SELECT ... FOR UPDATE`-ით,
+ერთსა და იმავე ტრანზაქციაში ([ADR-012](00-index-and-decisions.md)).
 დეტალები: [08 §4](08-payment-flow.md).
 
 ---
@@ -288,15 +289,16 @@ FEATURE_COURIER_DELIVERY=false
 - Retention: 30 დღე
 - **Restore ტესტი: თვეში ერთხელ, staging-ზე, ავტომატურად.** უტესტო backup არ არსებობს.
 - S3: versioning ჩართული
-- OpenSearch: **backup არ საჭიროებს** — სრულად აღდგება PostgreSQL-იდან reindex-ით.
-  ეს განზრახ არის: search index არის derived data, არა source of truth.
+- `search_documents`: **backup არ საჭიროებს** — სრულად აღდგება
+  `rebuild_search_documents()`-ით. ეს განზრახ არის: search index არის derived
+  data, არა source of truth.
 
 ---
 
 ## 9. CI/CD
 
 ```
-PR → lint → typecheck → unit → integration (ephemeral PG+Redis) → build
+PR → lint → typecheck → unit → e2e (ephemeral PostgreSQL) → build
    → migration dry-run → e2e (critical paths) → preview deploy
 main → staging → smoke → manual approve → production (blue/green)
 ```

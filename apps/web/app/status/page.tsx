@@ -73,6 +73,12 @@ const ADRS = [
   ['ADR-006 — ინტეგრაცია', 'Manual → CSV → API. პირველ პარტნიორებს API არ ექნებათ.'],
   ['ADR-007 — ენა', 'ქართული პროზა + ინგლისური იდენტიფიკატორები. კოდი მხოლოდ ინგლისურად.'],
   ['ADR-008 — DB წვდომა', 'raw SQL migration-ები, არა Prisma: schema დგას generated columns-სა და CHECK constraint-ებზე, რასაც Prisma-ს schema ენა ვერ გამოხატავს.'],
+  ['ADR-009 — ლოკალური ბაზა', 'PostgreSQL portable ბინარები, არა Docker: Docker Desktop ადმინს და WSL2-ს მოითხოვს, რაც ამ მანქანაზე არ იყო.'],
+  ['ADR-010 — Search', 'PostgreSQL tsvector + pg_trgm, არა OpenSearch. რამდენიმე ათასი master part-ისთვის ერთი ბაზა ორზე მეტად ღირებულია.'],
+  ['ADR-011 — ბაზის ლოკალი', '`C` ლოკალზე არა-ASCII სიმბოლოები ასოებად არ ითვლება და ქართული ძებნა ჩუმად კვდება. კლასტერი UTF-8 ctype-ით შეიქმნა.'],
+  ['ADR-012 — Reservation lock', 'Postgres advisory lock + row lock ერთ ტრანზაქციაში, არა Redis: კრიტიკული სექცია ბაზის შიგნითაა.'],
+  ['ADR-013 — Partner/Admin UI', 'იმავე Next აპლიკაციაში, როგორც მარშრუტები. როლები სერვერზე აღსრულდება, ამიტომ გაყოფა deploy-ის საზღვარია და არა უსაფრთხოების.'],
+  ['ADR-014 — ორი React მაჟორი', 'web 19-ზეა, React Native 18-ზე. tsconfig paths აფიქსირებს react-ს, თორემ next-ის ტიპები React 18-ს ხსნიდნენ და JSX ტყდებოდა.'],
 ] as const;
 
 const AVAILABILITY_LABEL: Record<string, string> = {
