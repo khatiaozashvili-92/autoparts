@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "autoparts",
+    "slug": "autoparts",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "autoparts",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": { "supportsTablet": true, "bundleIdentifier": "ge.autoparts.app" },
+    "android": {
+      "package": "ge.autoparts.app",
+      "adaptiveIcon": { "backgroundColor": "#b8510f" }
+    },
+    "extra": { "apiUrl": "http://localhost:3001" }
+  }
+}

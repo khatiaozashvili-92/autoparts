@@ -11,13 +11,13 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "pnpm test:unit && pnpm test:e2e",
     "clean": "turbo run clean && rimraf node_modules",
     "db:migrate": "pnpm --filter @autoparts/db migrate",
     "db:migrate:status": "pnpm --filter @autoparts/db migrate:status",
     "db:seed": "pnpm --filter @autoparts/db seed",
     "db:reset": "pnpm --filter @autoparts/db reset",
-    "test:e2e": "node tests/e2e-vin-garage.mjs && node tests/e2e-catalog-fitment.mjs && node tests/e2e-partner.mjs && node tests/e2e-search.mjs && node tests/e2e-purchase.mjs",
+    "test:e2e": "node tests/run-all.mjs",
     "test:unit": "pnpm --filter @autoparts/providers test && pnpm --filter @autoparts/fitment test"
   },
   "devDependencies": {
@@ -26,6 +26,10 @@
     "rimraf": "^6.0.1"
   },
   "pnpm": {
-    "onlyBuiltDependencies": []
+    "onlyBuiltDependencies": [],
+    "overrides": {
+      "@types/react-dom": "19.3.0",
+      "next>@types/react": "19.3.0"
+    }
   }
 }
