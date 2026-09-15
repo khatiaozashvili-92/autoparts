@@ -42,33 +42,70 @@ export function normalizeVin(raw: string): string {
 }
 
 export interface VinValidation {
-  valid: boolean;
-  /** Present when the VIN is structurally wrong. */
-  reason?: 'LENGTH' | 'CHARACTERS' | 'CHECKSUM';
-  /** Whether a checksum was actually verifiable for this VIN. */
+  /** Length and character set are correct. Nothing can be attempted without this. */
+  structurallyValid: boolean;
+  /** Whether a check digit was applicable and computed at all. */
   checksumVerified: boolean;
+  /** true / false when verified, null when the standard does not mandate one. */
+  checksumValid: boolean | null;
+  /** Structurally valid AND the checksum did not fail. */
+  valid: boolean;
+  reason?: 'LENGTH' | 'CHARACTERS' | 'CHECKSUM';
 }
 
 /**
- * Structural validation (PRD §8). "17 characters" is not enough.
+ * VIN validation (PRD §8). "17 characters" is not enough.
  *
- * The check digit is only mandated for North American VINs, so a failing
- * checksum on a non-NA VIN is not treated as invalid — it is simply
- * unverifiable. Rejecting those would lock out most European cars.
+ * Two levels, kept separate on purpose:
+ *
+ *  - **Structural** (length, character set) is absolute. `I`, `O` and `Q` never
+ *    appear in a VIN, so their presence means the input is not a VIN at all.
+ *  - **Check digit** is only mandated in North America, and even there a small
+ *    number of legitimately issued VINs carry a wrong one. So a failing
+ *    checksum marks the VIN as suspect rather than impossible: free providers
+ *    are still allowed to try, paid ones are not (docs/02 §4.1). Hard-rejecting
+ *    would turn a manufacturer's error into a car we refuse to serve.
  */
 export function validateVin(raw: string): VinValidation {
   const vin = normalizeVin(raw);
 
-  if (vin.length !== 17) return { valid: false, reason: 'LENGTH', checksumVerified: false };
-  if (!VIN_ALLOWED.test(vin)) return { valid: false, reason: 'CHARACTERS', checksumVerified: false };
+  if (vin.length !== 17) {
+    return {
+      structurallyValid: false,
+      checksumVerified: false,
+      checksumValid: null,
+      valid: false,
+      reason: 'LENGTH',
+    };
+  }
 
-  const checksumApplies = isNorthAmericanVin(vin);
-  if (!checksumApplies) return { valid: true, checksumVerified: false };
+  if (!VIN_ALLOWED.test(vin)) {
+    return {
+      structurallyValid: false,
+      checksumVerified: false,
+      checksumValid: null,
+      valid: false,
+      reason: 'CHARACTERS',
+    };
+  }
 
-  const expected = computeVinCheckDigit(vin);
-  if (expected !== vin[8]) return { valid: false, reason: 'CHECKSUM', checksumVerified: true };
+  if (!isNorthAmericanVin(vin)) {
+    return {
+      structurallyValid: true,
+      checksumVerified: false,
+      checksumValid: null,
+      valid: true,
+    };
+  }
 
-  return { valid: true, checksumVerified: true };
+  const checksumValid = computeVinCheckDigit(vin) === vin[8];
+  return {
+    structurallyValid: true,
+    checksumVerified: true,
+    checksumValid,
+    valid: checksumValid,
+    ...(checksumValid ? {} : { reason: 'CHECKSUM' as const }),
+  };
 }
 
 /**

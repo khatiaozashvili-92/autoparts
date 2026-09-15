@@ -1,6 +1,6 @@
 import { Global, Inject, Injectable, Logger, Module, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool } from 'pg';
+import { Pool, type QueryResultRow } from 'pg';
 import type { AppConfig } from '../config/configuration.js';
 
 export const PG_POOL = Symbol('PG_POOL');
@@ -28,7 +28,7 @@ export class DatabaseService implements OnModuleDestroy {
     return this.pool;
   }
 
-  async query<T extends Record<string, unknown>>(
+  async query<T extends QueryResultRow>(
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<T[]> {

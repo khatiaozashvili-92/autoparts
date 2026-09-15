@@ -177,3 +177,63 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12px; }
   .step { grid-template-columns: 26px 1fr; }
   .step .badge { grid-column: 2; justify-self: start; margin-top: 4px; }
 }
+
+/* ── VIN demo ── */
+
+.vin-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.vin-input {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  letter-spacing: 0.08em;
+  font-size: 14px;
+}
+.vin-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.vin-button {
+  padding: 9px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.vin-button:disabled { opacity: 0.6; cursor: default; }
+
+.pill-button {
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+}
+.pill-button:hover { border-color: var(--accent); }
+
+.result {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.error-box strong { color: var(--accent); }
+
+.note {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+
+.clarify {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}

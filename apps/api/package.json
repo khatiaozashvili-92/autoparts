@@ -23,7 +23,10 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^3.24.1",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "@autoparts/providers": "workspace:*",
+    "@autoparts/db": "workspace:*",
+    "@node-rs/argon2": "^2.0.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

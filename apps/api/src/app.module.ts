@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -8,9 +8,12 @@ import { loadConfig } from './config/configuration.js';
 import {
   AppExceptionFilter,
   LoggingInterceptor,
+  RolesGuard,
   RequestIdInterceptor,
 } from './common/common.js';
 import { DatabaseModule } from './database/database.module.js';
+import { AuthModule, PrincipalMiddleware } from './modules/auth/auth.module.js';
+import { VehiclesModule } from './modules/vehicles/vehicles.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { MetaController } from './modules/health/meta.controller.js';
 import { CatalogStatsController } from './modules/health/catalog-stats.controller.js';
@@ -29,6 +32,8 @@ import { CatalogStatsController } from './modules/health/catalog-stats.controlle
     // applied at the controller level — see docs/04 §10.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     DatabaseModule,
+    AuthModule,
+    VehiclesModule,
   ],
   controllers: [HealthController, MetaController, CatalogStatsController],
   providers: [
@@ -36,8 +41,13 @@ import { CatalogStatsController } from './modules/health/catalog-stats.controlle
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_FILTER, useClass: AppExceptionFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    // RolesGuard is registered from Step 3, once there is an authenticated
-    // principal to check. Registering it now would reject every request.
+    // Runs after the middleware has resolved a principal. Routes are private by
+    // default; @Public() opts a route out (docs/07 §5).
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(PrincipalMiddleware).forRoutes('*');
+  }
+}

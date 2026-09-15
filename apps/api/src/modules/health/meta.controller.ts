@@ -36,7 +36,7 @@ export class MetaController {
       service: 'autoparts-api',
       version: '0.1.0',
       environment: get('NODE_ENV'),
-      buildStep: { current: 1, name: 'Architecture', total: 12 },
+      buildStep: { current: 3, name: 'Vehicle / VIN', total: 12 },
 
       providers: {
         fitmentPrimary: get('FITMENT_PROVIDER_PRIMARY'),

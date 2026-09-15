@@ -1,3 +1,5 @@
+import { VinDemo } from './vin-demo';
+
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
 /* ─── shapes returned by the API (docs/04) ─── */
@@ -134,6 +136,9 @@ export default async function Page() {
           </p>
         </div>
       )}
+
+      <h2>VIN → ავტომობილი</h2>
+      <VinDemo />
 
       <h2>აშენების თანმიმდევრობა</h2>
       <div className="card steps">

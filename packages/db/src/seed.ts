@@ -1,6 +1,21 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { normalizeIdentifier, normalizeVin, vinWmi } from '@autoparts/core';
+import { createVinCipher } from './vin-crypto.js';
+
+/**
+ * The brake-configuration question from PRD §10, kept beside the seed so the
+ * mock provider and the seeded rows raise exactly the same question.
+ */
+const BRAKE_CONFIG_CLARIFICATION = {
+  id: 'brake_config',
+  questionKey: 'vin.clarify.brakeConfig',
+  attribute: 'brake_config',
+  options: [
+    { value: 'STANDARD', labelKey: 'brake.standard' },
+    { value: 'M_SPORT', labelKey: 'brake.mSport' },
+  ],
+};
 import { BRANDS, CATEGORIES, MASTER_PARTS, PARTNERS, VEHICLES } from './seed-data.js';
 
 /**
@@ -347,6 +362,10 @@ async function seedOffers(c: PoolClient): Promise<number> {
 }
 
 async function seedVehicles(c: PoolClient): Promise<number> {
+  const vinCipher = createVinCipher(
+    process.env.VIN_ENCRYPTION_KEY ?? 'dev-only-32-byte-key-change-me!!',
+  );
+
   for (const vehicle of VEHICLES) {
     const vin = normalizeVin(vehicle.vin);
     const vinId = stableId('vin', vin);
@@ -356,16 +375,17 @@ async function seedVehicles(c: PoolClient): Promise<number> {
       `INSERT INTO vins (id, vin_hash, vin_enc, wmi)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (vin_hash) DO NOTHING`,
-      // Seed data only: a real VIN is encrypted with the KMS key (docs/07 §7).
-      [vinId, hash, Buffer.from(vin, 'utf8'), vinWmi(vin)],
+      // Encrypted with the very cipher the API decrypts with. Writing
+      // plaintext here produced rows the application could not read back.
+      [vinId, hash, vinCipher.encrypt(vin), vinWmi(vin)],
     );
 
     await c.query(
       `INSERT INTO vehicle_configurations
          (id, vin_id, provider, make, model, model_year, generation, engine, engine_code,
-          fuel_type, transmission, drive_type, body_type, trim, market, raw)
-       VALUES ($1,$2,'mock',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'{}')
-       ON CONFLICT (id) DO NOTHING`,
+          fuel_type, transmission, drive_type, body_type, trim, market, clarifications, raw)
+       VALUES ($1,$2,'mock',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'{}')
+       ON CONFLICT (id) DO UPDATE SET clarifications = EXCLUDED.clarifications`,
       [
         stableId('config', vin),
         vinId,
@@ -381,6 +401,7 @@ async function seedVehicles(c: PoolClient): Promise<number> {
         vehicle.bodyType,
         vehicle.trim ?? null,
         vehicle.market,
+        JSON.stringify(vehicle.make === 'BMW' ? [BRAKE_CONFIG_CLARIFICATION] : []),
       ],
     );
   }
