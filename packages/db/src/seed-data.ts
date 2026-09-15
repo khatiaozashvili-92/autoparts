@@ -24,10 +24,12 @@ export const CATEGORIES: CategorySeed[] = [
     required: ['engine_code'] },
   { slug: 'brakes', ka: 'სამუხრუჭე სისტემა', en: 'Brakes',
     synonymsKa: ['მუხრუჭი', 'მუხრუჭები', 'ხუნდები'], synonymsEn: ['brake', 'braking'],
-    required: ['axle'] },
+    // Front vs rear lives on the master part, not on the car: a vehicle has no
+    // 'axle' attribute, and requiring one hid the whole category (migration 0003).
+    required: [] },
   { slug: 'suspension', ka: 'სავალი ნაწილი', en: 'Suspension',
     synonymsKa: ['ამორტიზატორი', 'სავალი'], synonymsEn: ['shock', 'strut'],
-    required: ['axle'] },
+    required: [] },
   { slug: 'steering', ka: 'საჭე', en: 'Steering',
     synonymsKa: ['მართვა', 'რულევოი'], synonymsEn: ['rack'], required: [] },
   { slug: 'transmission', ka: 'ტრანსმისია', en: 'Transmission',

@@ -14,6 +14,8 @@ import {
 import { DatabaseModule } from './database/database.module.js';
 import { AuthModule, PrincipalMiddleware } from './modules/auth/auth.module.js';
 import { VehiclesModule } from './modules/vehicles/vehicles.module.js';
+import { FitmentModule } from './modules/fitment/fitment.module.js';
+import { CatalogModule } from './modules/catalog/catalog.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { MetaController } from './modules/health/meta.controller.js';
 import { CatalogStatsController } from './modules/health/catalog-stats.controller.js';
@@ -34,6 +36,8 @@ import { CatalogStatsController } from './modules/health/catalog-stats.controlle
     DatabaseModule,
     AuthModule,
     VehiclesModule,
+    FitmentModule,
+    CatalogModule,
   ],
   controllers: [HealthController, MetaController, CatalogStatsController],
   providers: [

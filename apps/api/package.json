@@ -26,7 +26,8 @@
     "pg": "^8.13.1",
     "@autoparts/providers": "workspace:*",
     "@autoparts/db": "workspace:*",
-    "@node-rs/argon2": "^2.0.2"
+    "@node-rs/argon2": "^2.0.2",
+    "@autoparts/fitment": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

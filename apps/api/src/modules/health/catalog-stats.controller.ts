@@ -34,6 +34,7 @@ export class CatalogStatsController {
       fitments: string;
       open_conflicts: string;
       in_stock_offers: string;
+      fitment_checks: string;
     }>(`
       SELECT (SELECT count(*) FROM categories)::text               AS categories,
              (SELECT count(*) FROM brands)::text                   AS brands,
@@ -46,7 +47,8 @@ export class CatalogStatsController {
              (SELECT count(*) FROM fitment_conflicts
                WHERE status = 'OPEN')::text                        AS open_conflicts,
              (SELECT count(*) FROM offers
-               WHERE availability_status = 'IN_STOCK')::text       AS in_stock_offers
+               WHERE availability_status = 'IN_STOCK')::text       AS in_stock_offers,
+             (SELECT count(*) FROM fitment_checks)::text          AS fitment_checks
     `);
 
     const vehicles = await this.db.query<{

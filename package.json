@@ -17,7 +17,7 @@
     "db:migrate:status": "pnpm --filter @autoparts/db migrate:status",
     "db:seed": "pnpm --filter @autoparts/db seed",
     "db:reset": "pnpm --filter @autoparts/db reset",
-    "test:e2e": "node tests/e2e-vin-garage.mjs"
+    "test:e2e": "node tests/e2e-vin-garage.mjs && node tests/e2e-catalog-fitment.mjs"
   },
   "devDependencies": {
     "turbo": "^2.3.3",
