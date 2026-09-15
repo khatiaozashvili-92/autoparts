@@ -1,0 +1,175 @@
+# autoparts — ტექნიკური სპეციფიკაცია
+
+**პროექტი:** `autoparts` (placeholder სახელი — ბრენდის შერჩევისას გადაერქმევა)
+**ვერსია:** 1.0
+**წყარო:** PRD v1.0 Final (`PRD-automarketplace.docx`), სექციები 1–105
+**თარიღი:** 2026-09-15
+
+---
+
+## დოკუმენტების რუკა
+
+| # | დოკუმენტი | რას ფარავს | PRD სექციები |
+|---|-----------|-----------|--------------|
+| 01 | [product-requirements](01-product-requirements.md) | პროდუქტის მოთხოვნები, scope, KPI, acceptance criteria | 1–6, 84–86, 88–95, 103–105 |
+| 02 | [system-architecture](02-system-architecture.md) | სერვისები, მოდულები, repo სტრუქტურა, deployment | 68–75, 96, 100 |
+| 03 | [database-schema](03-database-schema.md) | PostgreSQL სრული DDL, ინდექსები, invariants | 62–67, 94 |
+| 04 | [api-specification](04-api-specification.md) | REST endpoints, DTO, error model, pagination | 68 |
+| 05 | [fitment-engine](05-fitment-engine.md) | თავსებადობის განსაზღვრის ძრავა — ბირთვი | 8–10, 15–18, 97 |
+| 06 | [inventory-integration](06-inventory-integration.md) | Partner Integration Layer, API/CSV/Manual, sync | 24–30, 57–58, 71, 74–75 |
+| 07 | [authentication](07-authentication.md) | Auth, RBAC, უსაფრთხოება | 7, 76–77 |
+| 08 | [payment-flow](08-payment-flow.md) | გადახდა, markup, settlement, refund | 31–33, 44, 51–53, 64, 66–67 |
+| 09 | [admin-panel](09-admin-panel.md) | Admin Panel | 59, 79 |
+| 10 | [partner-portal](10-partner-portal.md) | Partner Dashboard | 56, 99 |
+| 11 | [mobile-app](11-mobile-app.md) | React Native აპლიკაცია | 81, 83, 98 |
+| 12 | [web-app](12-web-app.md) | Next.js ვებ პლატფორმა | 82–83 |
+
+---
+
+## აშენების თანმიმდევრობა
+
+PRD §100-ის მიხედვით. **თითოეული ნაბიჯი დასრულებული და ტესტირებულია შემდეგზე გადასვლამდე.**
+
+| Step | შინაარსი | დოკუმენტი | გამომავალი |
+|------|----------|-----------|------------|
+| 1 | Architecture — monorepo, env, API conventions, RBAC | 02, 07 | ჩონჩხი ეშვება |
+| 2 | Data Layer — schema, migrations, entities, seed | 03 | `pnpm db:migrate && pnpm db:seed` |
+| 3 | Vehicle/VIN — abstraction, **MockProvider**, Garage | 05 | VIN → Garage მუშაობს |
+| 4 | Catalog — Brand, Category, MasterPart, Product, Offer | 03, 04 | კატალოგი დგას |
+| 5 | **Fitment Engine** — rules, verdicts, conflicts | 05 | მხოლოდ თავსებადი ჩანს |
+| 6 | Partner — dashboard, manual inventory, CSV, abstraction | 06, 10 | პარტნიორს შეაქვს მარაგი |
+| 7 | Search — OpenSearch, ka/en, synonyms, fitment filter | 02, 05 | ძებნა <2–3 წმ |
+| 8 | Marketplace — offers, sorting, filters, markup | 08 | შეთავაზებების შედარება |
+| 9 | Orders — cart, reservation, order, payment, refund | 08 | გადახდა → შეკვეთა |
+| 10 | Pickup — Ready for Pickup, QR, 24h expiry | 01, 10 | სრული lifecycle |
+| 11 | Admin — სრული პანელი | 09 | marketplace იმართება |
+| 12 | Web/Mobile UX — polished UI | 11, 12 | გაშვებადი პროდუქტი |
+
+**პლატფორმები:** სპეცი სამივეს ფარავს (web + iOS + Android). Step 1–11 backend-ს და
+მინიმალურ UI-ს აშენებს; Step 12-ზე ერთდროულად ეწყობა Next.js და React Native, საერთო
+`@autoparts/api-client` და `@autoparts/core` პაკეტებზე.
+
+---
+
+## გადაწყვეტილებების ჟურნალი (ADR)
+
+ქვემოთ ჩამოთვლილია გადაწყვეტილებები, რომლებიც PRD-ში ღია ან წინააღმდეგობრივი იყო და
+სპეცის დაწერისას დაიხურა. **თითოეული ცვლადია — მაგრამ სანამ არ შეიცვლება, ყველა დოკუმენტი
+ამას მიჰყვება.**
+
+### ADR-001 — გადახდის მოდელი: §32 იმარჯვებს §44-ზე
+
+**კონფლიქტი:** §32 ამბობს `Customer Price = Partner Base Price + Platform Markup`.
+§44 ამბობს „Customer payment → Partner, Platform იღებს commission-ს ცალკე“.
+
+**გადაწყვეტილება:** ეს **ერთი** ნაკადია, არა ორი. მომხმარებელი იხდის **ერთ** თანხას
+(`customer_price`) პლატფორმას; პლატფორმა settlement-ზე უგზავნის პარტნიორს `base_price`-ს
+და იტოვებს `platform_markup`-ს.
+
+**რატომ:** ამას თავად PRD-ის data model ადასტურებს — `Offer` (§64) ინახავს სამივე ველს
+(`base_price`, `platform_markup`, `customer_price`), `Order` (§66) ინახავს
+`subtotal / markup / total`-ს, `Payment` (§67) ინახავს ერთ `amount`-ს და `commission`-ს,
+და §62-ში ცალკე entity-დაა `Settlement`. ორი დამოუკიდებელი გადახდა ამ მოდელს არ სჭირდება.
+§44-ის ფრაზა აღწერს **ეკონომიკურ** შედეგს, არა ტრანზაქციების რაოდენობას.
+
+**შედეგი:** პლატფორმა არის merchant of record → სჭირდება იურიდიული პირი და
+split-settlement ხელშეკრულება acquirer-თან. ეს **იურიდიული blocker-ია**, არა ტექნიკური —
+იხ. `08-payment-flow.md` §9.
+
+**ბიზნეს-რისკი, რომელიც ცალკე უნდა გაიზომოს:** markup მყიდველზე გადადის, ანუ პლატფორმის
+ფასი იმავე მაღაზიის ფასზე ძვირია → showrooming. საზომი: `Offer→Purchase Rate` (§61).
+თუ ის დაბალია, `platform_markup` კონფიგურირებადია partner/category დონეზე (§33) და
+გამყიდველზე გადატანა **schema-ს ცვლილებას არ საჭიროებს** — მხოლოდ `price_rules`-ის ცვლილებას.
+
+### ADR-002 — Request Part არის P1, მაგრამ schema P0-შია
+
+**კონფლიქტი:** §85 Request Part-ს P1-ში აყენებს, მაგრამ §78 (MVP notifications),
+§56 (Partner Dashboard → Requests) და §59 (Admin → Requests) მას MVP-ში ახსენებს.
+
+**გადაწყვეტილება:**
+- `request_parts` და `partner_offers` ცხრილები **იქმნება Step 2-ზე** (P0 migration-ში);
+- `NotificationType.REQUEST_PART_RESPONSE` **რეგისტრირდება** enum-ში P0-ზე;
+- UI, API endpoints და notification trigger **P1-შია**;
+- Partner/Admin dashboard-ის „Requests“ სექცია P0-ზე ჩანს ცარიელი empty-state-ით.
+
+**რატომ:** ასე P1-ის ჩართვა **migration-ს არ საჭიროებს** — მხოლოდ feature flag-ს
+(`FEATURE_REQUEST_PART`). §53-ის „ცოცხალი“ ცხრილების მიგრაცია production-ზე ძვირია.
+
+### ADR-003 — VIN provider: Mock პირველი, NHTSA vPIC უფასო adapter, კომერციული slot
+
+**გადაწყვეტილება:** `FitmentProvider` ინტერფეისი (§102) სამი იმპლემენტაციით:
+
+| Adapter | როდის | ღირებულება | დაფარვა |
+|---------|-------|------------|---------|
+| `MockFitmentProvider` | Step 3–11, ტესტები, CI | 0 | სემინარული seed data |
+| `NhtsaVpicProvider` | Production, პირველი რიგი | **0, ულიმიტო** | US-spec მანქანები |
+| `CommercialProvider` | Production, fallback | €0.22–0.49 / VIN | EU-spec + სიღრმე |
+
+**რატომ NHTSA vPIC არის რეალური ვარიანტი და არა მხოლოდ სათამაშო:** საქართველოში 2024-ში
+70,000+ მეორადი ავტომობილი შემოვიდა, უმრავლესობა Copart / IAAI / Manheim-იდან — ანუ
+**US-spec**. vPIC სწორედ US-market VIN-ებს შლის (make, model, year, engine, displacement,
+body, drivetrain, plant), უფასოდ და ულიმიტოდ.
+
+**კრიტიკული შედეგი:** US-spec და EU-spec ერთი და იმავე მოდელის ნაწილები **განსხვავდება**.
+ამიტომ `market` (§10, §63) არის **სავალდებულო** ველი fitment-ში, არა სასურველი —
+იხ. `05-fitment-engine.md` §4.
+
+**ქეშირება:** VIN ერთხელ იშიფრება და სამუდამოდ ინახება `vehicle_configurations`-ში.
+15,000 უნიკალურ მანქანაზე კომერციული provider ≈ €3,300 **ერთჯერადად**, არა განმეორებადად.
+
+### ADR-004 — Fitment: OEM ნომერი ხერხემალი, TecDoc მოგვიანებით
+
+**გადაწყვეტილება:** MVP-ის fitment ეყრდნობა OEM/part-number matching-ს + პარტნიორის
+declared fitment-ს + ადმინის override-ს. ლიცენზირებული კატალოგი (TecDoc) **არ არის
+MVP-ის დამოკიდებულება**.
+
+**რატომ:** TecDoc-ს საჯარო ფასი არ აქვს — ხელშეკრულება წლიურად, ბრუნვის პროცენტზე +
+წლიურ მინიმუმზე იკვრება, და ლიცენზიის გარეშე მისი მონაცემებით მაღაზიის გაშვება
+**აკრძალულია**. pre-revenue სტარტაპისთვის ეს კვირებს/თვეებს და ფულს ნიშნავს **სანამ ერთი
+ხაზი კოდი დაიწერება**.
+
+**რაც ამას უსაფრთხოს ხდის:** §16-ის პრიორიტეტების იერარქია და §18-ის წესი —
+*გაურკვევლობისას პროდუქტი თავსებადად არ ჩანს*. ანუ დაბალი ხარისხის fitment-ის ფასი არის
+**ნაკლები შედეგი**, და არა **არასწორი შედეგი**. ეს სწორი მიმართულებით შეცდომაა.
+
+### ADR-005 — ფულის შენახვა: `bigint` minor units
+
+**გადაწყვეტილება:** ყველა ფულადი თანხა ინახება `bigint`-ად, ვალუტის **minor unit**-ში
+(GEL → თეთრი, USD → cent), გვერდით `char(3)` ISO-4217 კოდით. `float`/`double` აკრძალულია.
+
+**რატომ:** 420.50 ₾ = `42050`. floating point-ში `0.1 + 0.2 != 0.3`, და marketplace-ში
+ეს settlement-ის განსხვავებას ნიშნავს. `numeric` მუშაობს, მაგრამ ორივე მხარეს
+(TS ↔ PG) `bigint` minor units უფრო უსაფრთხოა, რადგან JS-ის `number`-ში გადაბარება
+არ ხდება — გამოიყენება `bigint`/`string`.
+
+### ADR-006 — პარტნიორის ინტეგრაციის რიგი: Manual → CSV → API
+
+**გადაწყვეტილება:** §24-ის სამივე გზა სპეცშია, მაგრამ **აშენების რიგი** არის
+Manual dashboard → CSV import → API integration.
+
+**რატომ:** MVP-ის სამიზნეა 5–10 პარტნიორი (§4). მათგან დღის პირველ დღეს ვერცერთს ექნება
+მზა API. თუ API-თი დავიწყებთ, Step 6 დასრულდება ისე, რომ **ვერცერთი პარტნიორი ვერ
+შემოვა**. Manual-ით კი პირველივე დღეს შემოდის.
+
+### ADR-007 — დოკუმენტების ენა
+
+ქართული პროზა + ინგლისური ტექნიკური ტერმინები და იდენტიფიკატორები — PRD-ის საკუთარი
+სტილი. კოდი, schema, API, enum-ები, commit messages: **მხოლოდ ინგლისური**.
+UI-ს ტექსტები არსად არ არის hardcoded — იხ. §80 და `12-web-app.md` §7.
+
+---
+
+## ღია საკითხები (ბიზნესი, არა კოდი)
+
+ეს ვერ დაიხურა სპეცით და **პარალელურად უნდა მოგვარდეს development-თან ერთად**:
+
+| # | საკითხი | ბლოკავს | ვადა |
+|---|---------|---------|------|
+| 1 | იურიდიული პირი + acquirer ხელშეკრულება (BOG / TBC / სხვა) split-settlement-ით | Step 9 (real payment) | Step 6-მდე |
+| 2 | 5–10 პარტნიორის წერილობითი დათანხმება | Step 6 (რეალური მონაცემი) | Step 5-მდე |
+| 3 | კომერციული VIN provider-ის შერჩევა EU-spec fallback-ისთვის | Step 3-ის production რეჟიმი | Step 7-მდე |
+| 4 | Return policy-ის იურიდიული ტექსტი (§53) | Step 9 (checkout) | Step 9-მდე |
+| 5 | პერსონალურ მონაცემთა დაცვის შესაბამისობა (VIN + მისამართი) | გაშვება | გაშვებამდე |
+
+**#1 და #2 ყველაზე მნიშვნელოვანია.** ტექნიკურად Step 1–11 მათ გარეშეც შესრულდება
+(mock provider + mock payment), მაგრამ **გაშვება მათ გარეშე შეუძლებელია.**
