@@ -53,7 +53,7 @@ export class HealthController {
 
     return {
       status: blocking.length === 0 ? 'ok' : 'degraded',
-      currentStep: 7,
+      currentStep: 10,
       migrationsApplied: await this.db.migrationCount(),
       dependencies,
     };

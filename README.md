@@ -43,6 +43,14 @@ Used on machines where Docker Desktop cannot be installed (it needs
 administrator rights and WSL2 — see ADR-009). Binaries live in
 `%LOCALAPPDATA%\autoparts-pg`, the server listens on **port 5433**.
 
+> **The cluster must not use `--locale=C`.** Under it, non-ASCII characters are
+> not letters, and Georgian text search and `pg_trgm` stop working with no error
+> at all — see ADR-011. Initialise with a UTF-8 ctype:
+>
+> ```powershell
+> initdb -D <data> -U autoparts --encoding=UTF8 --locale="English_United States.utf8"
+> ```
+
 ```powershell
 $pg = "$env:LOCALAPPDATA\autoparts-pg\pgsql\bin"
 & "$pg\pg_ctl.exe" -D "$env:LOCALAPPDATA\autoparts-pg\data" -l "$env:LOCALAPPDATA\autoparts-pg\server.log" start

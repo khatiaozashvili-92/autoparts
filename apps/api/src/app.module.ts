@@ -19,6 +19,9 @@ import { CatalogModule } from './modules/catalog/catalog.module.js';
 import { PricingModule } from './modules/pricing/pricing.module.js';
 import { PartnersModule } from './modules/partners/partners.module.js';
 import { SearchModule } from './modules/search/search.module.js';
+import { OffersModule } from './modules/offers/offers.module.js';
+import { OrdersModule } from './modules/orders/orders.module.js';
+import { JobsModule } from './modules/jobs/jobs.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { MetaController } from './modules/health/meta.controller.js';
 import { CatalogStatsController } from './modules/health/catalog-stats.controller.js';
@@ -44,6 +47,9 @@ import { CatalogStatsController } from './modules/health/catalog-stats.controlle
     CatalogModule,
     PartnersModule,
     SearchModule,
+    OffersModule,
+    OrdersModule,
+    JobsModule,
   ],
   controllers: [HealthController, MetaController, CatalogStatsController],
   providers: [

@@ -28,6 +28,7 @@ import { UserRole, errors, type Principal } from '@autoparts/core';
 import { CurrentPrincipal, Public, Roles } from '../../common/common.js';
 import { PartnersService } from './partners.service.js';
 import { PartnerInventoryService } from './partner-inventory.service.js';
+import { PickupService } from '../orders/pickup.service.js';
 
 class UpdateOfferDto {
   @IsOptional() @IsString() basePriceMinor?: string;
@@ -47,6 +48,10 @@ class AddLocationDto {
   @IsOptional() @IsString() pickupInstructions?: string;
 }
 
+class VerifyPickupDto {
+  @IsString() @Length(4, 12) code!: string;
+}
+
 class OfferQuery {
   @IsOptional() @IsString() search?: string;
   @IsOptional() @IsInt() limit?: number;
@@ -59,6 +64,7 @@ export class PartnersController {
   constructor(
     private readonly partners: PartnersService,
     private readonly inventory: PartnerInventoryService,
+    private readonly pickup: PickupService,
   ) {}
 
   @Get('profile')
@@ -110,6 +116,30 @@ export class PartnersController {
   @ApiOperation({ summary: 'Fitment conflicts currently hiding this partner’s products' })
   conflicts(@CurrentPrincipal() p: Principal) {
     return this.partners.conflicts(this.partners.scopeOf(p));
+  }
+
+  /* ─────────────────────── orders ─────────────────────── */
+
+  @Get('orders')
+  @ApiOperation({ summary: 'The order queue for this partner' })
+  orders(@CurrentPrincipal() p: Principal, @Query('status') status?: string) {
+    return this.pickup.partnerOrders(this.partners.scopeOf(p), status);
+  }
+
+  @Post('orders/:id/ready')
+  @ApiOperation({ summary: 'Mark ready for pickup, starting the 24-hour clock' })
+  markReady(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.pickup.markReady(this.partners.scopeOf(p), id);
+  }
+
+  @Post('orders/:id/verify-pickup')
+  @ApiOperation({ summary: 'Verify the code the customer presented' })
+  verifyPickup(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: VerifyPickupDto,
+  ) {
+    return this.pickup.verify(this.partners.scopeOf(p), id, dto.code);
   }
 
   /* ─────────────────────── inventory ─────────────────────── */
