@@ -1,0 +1,34 @@
+{
+  "name": "@autoparts/db",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "node dist/cli.js migrate",
+    "migrate:status": "node dist/cli.js status",
+    "seed": "node dist/cli.js seed",
+    "reset": "node dist/cli.js reset",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@autoparts/core": "workspace:*",
+    "kysely": "^0.27.5",
+    "pg": "^8.13.1",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2"
+  }
+}

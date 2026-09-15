@@ -120,7 +120,7 @@ exported service-ს. ეს ინარჩუნებს იმის შე�
 | Web | Next.js (App Router) + React + TypeScript | SSR პროდუქტის გვერდებზე — SEO |
 | Mobile | React Native + Expo + TypeScript | ერთი ენა backend-თან |
 | Backend | **NestJS + TypeScript** | modular architecture — §69-ის რეკომენდაცია |
-| ORM | Prisma | typed schema, migration-ები `db/migrations`-ში |
+| DB წვდომა | `pg` + raw SQL migration-ები | schema დგას generated columns/CHECK-ებზე, რასაც ORM-ის schema ენა ვერ გამოხატავს — [ADR-008](00-index-and-decisions.md) |
 | Database | PostgreSQL 16 | System of Record |
 | Search | OpenSearch 2.x | ka/en analyzers, synonyms, typo tolerance |
 | Cache / Lock | Redis 7 | session, rate limit, **reservation lock** |

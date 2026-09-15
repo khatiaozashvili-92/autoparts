@@ -157,6 +157,48 @@ Manual dashboard → CSV import → API integration.
 სტილი. კოდი, schema, API, enum-ები, commit messages: **მხოლოდ ინგლისური**.
 UI-ს ტექსტები არსად არ არის hardcoded — იხ. §80 და `12-web-app.md` §7.
 
+
+### ADR-008 — DB წვდომა: raw SQL migration-ები, არა Prisma
+
+**გადაწყვეტილება:** schema იწერება raw SQL migration-ებად (`db/migrations/*.sql`),
+გატარება — საკუთარი runner-ით checksum-ის დაცვით. ORM-ის schema ენა არ გამოიყენება.
+
+**რატომ:** `docs/01 §7`-ის data quality წესები განზრახ **ბაზის დონეზეა** აღსრულებული,
+და ეს ეყრდნობა PostgreSQL-ის შესაძლებლობებს, რომელთაც Prisma-ს schema ენა **ვერ**
+გამოხატავს:
+
+| საჭირო | Prisma schema |
+|--------|---------------|
+| `customer_price_minor` generated column | ❌ |
+| `CHECK` constraint (უარყოფითი ფასი, settlement-ის მათემატიკა) | ❌ |
+| partial / expression unique index (`COALESCE(...)`) | ❌ |
+| `offer_availability` VIEW | ❌ |
+| `citext`, `bytea`, `inet`, `text[]` | ნაწილობრივ |
+
+Prisma-თი ეს ყველაფერი მაინც ხელით SQL-ში დაიწერებოდა, Prisma კი მათ თავის schema-ში
+ვერ დაინახავდა და შემდეგ introspection-ზე წაშლას შემოგვთავაზებდა. ანუ ORM აქ
+**ეწინააღმდეგება** პროექტის დეკლარირებულ პრინციპს, და არა ეხმარება.
+
+**ფასი:** ტიპიზებული query builder ცალკე უნდა აეწყოს (Step 4-ზე, კატალოგის endpoint-ებთან
+ერთად). Migration runner უკვე იცავს checksum-ს: გატარებული migration-ის შეცვლა
+შეცდომას იწვევს, არა ჩუმ დრიფტს.
+
+### ADR-009 — ლოკალური PostgreSQL portable ბინარებით, არა Docker
+
+**გადაწყვეტილება:** development-ის ბაზა არის PostgreSQL 16.4 **portable binaries**,
+გაშვებული user-space-იდან (`%LOCALAPPDATA%autoparts-pg`), პორტი **5433**.
+`infra/docker-compose.yml` რჩება — ის არის CI-სა და იმ დეველოპერებისთვის, ვისაც Docker აქვს.
+
+**რატომ:** Docker Desktop-ის ინსტალაცია ამ მანქანაზე მოითხოვს ადმინის უფლებას **და**
+WSL2-ს (რომელიც თავად მოითხოვს ადმინს + გადატვირთვას). ინსტალერი ჩავარდა კოდით
+`4294967291` — UAC-ის უარყოფა. portable ბინარები ამ სამივეს გვერდს უვლის და Step 2
+დაუყოვნებლივ იხსნება.
+
+**რა იცვლება Docker-ის გაჩენისას:** მხოლოდ `DATABASE_URL` (პორტი 5433 → 5432).
+სქემა, migration-ები და კოდი უცვლელია.
+
+**რა რჩება დაბლოკილი:** Redis (Step 9) და OpenSearch (Step 7). ორივე Docker-ს ან
+ცალკე ინსტალაციას საჭიროებს — ეს Step 6-მდე უნდა გადაწყდეს.
 ---
 
 ## ღია საკითხები (ბიზნესი, არა კოდი)

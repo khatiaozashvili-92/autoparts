@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/common.js';
+import { DatabaseService } from '../../database/database.module.js';
 import type { AppConfig } from '../../config/configuration.js';
 
 type DependencyState = 'ok' | 'not_configured' | 'unreachable';
@@ -11,13 +12,17 @@ interface DependencyReport {
   state: DependencyState;
   /** Which build step turns this from not_configured into ok. */
   requiredFromStep: number;
+  latencyMs?: number;
   detail?: string;
 }
 
 @ApiTags('health')
 @Controller()
 export class HealthController {
-  constructor(private readonly config: ConfigService<AppConfig, true>) {}
+  constructor(
+    private readonly config: ConfigService<AppConfig, true>,
+    private readonly db: DatabaseService,
+  ) {}
 
   @Public()
   @Get('health')
@@ -29,31 +34,53 @@ export class HealthController {
   /**
    * Readiness with a per-dependency breakdown.
    *
-   * During Step 1 the datastores are intentionally absent, so a missing
-   * DATABASE_URL reports `not_configured` rather than `unreachable` — an
-   * unconfigured dependency is a known state, not a failure, and conflating
-   * the two makes a real outage harder to spot later.
+   * `not_configured` and `unreachable` are deliberately distinct: a dependency
+   * that has not been wired up yet is a known state of the build, while one
+   * that is configured and failing is an outage. Collapsing the two would hide
+   * a real incident behind an expected one.
    */
   @Public()
   @Get('ready')
   @ApiOperation({ summary: 'Readiness with dependency breakdown' })
-  ready() {
+  async ready() {
     const dependencies: DependencyReport[] = [
-      this.check('postgres', this.config.get('DATABASE_URL', { infer: true }), 2),
-      this.check('redis', this.config.get('REDIS_URL', { infer: true }), 9),
-      this.check('opensearch', this.config.get('OPENSEARCH_URL', { infer: true }), 7),
+      await this.checkPostgres(),
+      this.checkUrlOnly('redis', this.config.get('REDIS_URL', { infer: true }), 9),
+      this.checkUrlOnly('opensearch', this.config.get('OPENSEARCH_URL', { infer: true }), 7),
     ];
 
     const blocking = dependencies.filter((d) => d.state === 'unreachable');
 
     return {
       status: blocking.length === 0 ? 'ok' : 'degraded',
-      currentStep: 1,
+      currentStep: 2,
+      migrationsApplied: await this.db.migrationCount(),
       dependencies,
     };
   }
 
-  private check(name: string, url: string, requiredFromStep: number): DependencyReport {
+  private async checkPostgres(): Promise<DependencyReport> {
+    if (!this.db.configured) {
+      return {
+        name: 'postgres',
+        state: 'not_configured',
+        requiredFromStep: 2,
+        detail: 'DATABASE_URL is empty',
+      };
+    }
+    const ping = await this.db.ping();
+    return ping.ok
+      ? { name: 'postgres', state: 'ok', requiredFromStep: 2, latencyMs: ping.latencyMs }
+      : {
+          name: 'postgres',
+          state: 'unreachable',
+          requiredFromStep: 2,
+          latencyMs: ping.latencyMs,
+          ...(ping.error ? { detail: ping.error } : {}),
+        };
+  }
+
+  private checkUrlOnly(name: string, url: string, requiredFromStep: number): DependencyReport {
     if (!url) {
       return {
         name,
@@ -62,7 +89,7 @@ export class HealthController {
         detail: `Configured from build step ${requiredFromStep}`,
       };
     }
-    // Step 2+ replaces this with a real connection probe.
+    // Replaced by a real probe at the step that introduces this dependency.
     return { name, state: 'ok', requiredFromStep };
   }
 }

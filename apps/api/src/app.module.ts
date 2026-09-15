@@ -10,8 +10,10 @@ import {
   LoggingInterceptor,
   RequestIdInterceptor,
 } from './common/common.js';
+import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { MetaController } from './modules/health/meta.controller.js';
+import { CatalogStatsController } from './modules/health/catalog-stats.controller.js';
 
 @Module({
   imports: [
@@ -26,8 +28,9 @@ import { MetaController } from './modules/health/meta.controller.js';
     // Baseline limit only. Per-route limits (auth, OTP, VIN decode) are
     // applied at the controller level — see docs/04 §10.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    DatabaseModule,
   ],
-  controllers: [HealthController, MetaController],
+  controllers: [HealthController, MetaController, CatalogStatsController],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: RequestIdInterceptor },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },

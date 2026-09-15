@@ -16,7 +16,35 @@ interface Meta {
 
 interface Ready {
   status: string;
-  dependencies: { name: string; state: string; requiredFromStep: number; detail?: string }[];
+  migrationsApplied: number | null;
+  dependencies: {
+    name: string;
+    state: string;
+    requiredFromStep: number;
+    latencyMs?: number;
+    detail?: string;
+  }[];
+}
+
+interface Catalog {
+  configured: boolean;
+  counts?: Record<string, number>;
+  vehicles?: {
+    make: string;
+    model: string;
+    model_year: number;
+    engine_code: string | null;
+    market: string | null;
+  }[];
+  comparison?: {
+    product: string;
+    partner: string;
+    city: string | null;
+    customer_price_minor: string;
+    currency: string;
+    availability_status: string;
+    stock_age_minutes: number;
+  }[];
 }
 
 const STEPS = [
@@ -42,7 +70,20 @@ const ADRS = [
   ['ADR-005 — ფული', 'bigint minor units. 420.50 ₾ = 42050. float settlement-ს ანგრევს.'],
   ['ADR-006 — ინტეგრაცია', 'Manual → CSV → API. პირველ პარტნიორებს API არ ექნებათ.'],
   ['ADR-007 — ენა', 'ქართული პროზა + ინგლისური იდენტიფიკატორები. კოდი მხოლოდ ინგლისურად.'],
+  ['ADR-008 — DB წვდომა', 'raw SQL migration-ები, არა Prisma: schema დგას generated columns-სა და CHECK constraint-ებზე, რასაც Prisma-ს schema ენა ვერ გამოხატავს.'],
 ] as const;
+
+const AVAILABILITY_LABEL: Record<string, string> = {
+  IN_STOCK: 'მარაგშია',
+  AVAILABLE_TO_ORDER: 'შეკვეთით',
+  UNAVAILABLE: 'არ არის',
+};
+
+const AVAILABILITY_DOT: Record<string, string> = {
+  IN_STOCK: 'ok',
+  AVAILABLE_TO_ORDER: 'pending',
+  UNAVAILABLE: 'idle',
+};
 
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
@@ -53,10 +94,17 @@ async function fetchJson<T>(path: string): Promise<T | null> {
   }
 }
 
+function money(minor: string, currency: string): string {
+  return new Intl.NumberFormat('ka-GE', { style: 'currency', currency }).format(
+    Number(minor) / 100,
+  );
+}
+
 export default async function Page() {
-  const [meta, ready] = await Promise.all([
+  const [meta, ready, catalog] = await Promise.all([
     fetchJson<Meta>('/api/v1/meta'),
     fetchJson<Ready>('/ready'),
+    fetchJson<Catalog>('/api/v1/meta/catalog'),
   ]);
 
   const currentStep = meta?.buildStep.current ?? 1;
@@ -67,12 +115,13 @@ export default async function Page() {
         <p className="eyebrow">VIN-Based Auto Parts Marketplace · საქართველო</p>
         <h1>autoparts</h1>
         <p className="lede">
-          სპეციფიკაცია დაწერილია (13 დოკუმენტი), კოდის აწყობა დაწყებულია.
-          ეს გვერდი აჩვენებს რა დგას ახლა და რა მოდის შემდეგ.
+          სპეციფიკაცია დაწერილია (13 დოკუმენტი), კოდის აწყობა მიმდინარეობს. ეს გვერდი
+          აჩვენებს რა დგას ახლა და რა მოდის შემდეგ.
         </p>
         <div className="links">
           <a href={`${API_URL}/docs`} target="_blank" rel="noreferrer">Swagger UI →</a>
           <a href={`${API_URL}/api/v1/meta`} target="_blank" rel="noreferrer">/api/v1/meta →</a>
+          <a href={`${API_URL}/api/v1/meta/catalog`} target="_blank" rel="noreferrer">/meta/catalog →</a>
           <a href={`${API_URL}/ready`} target="_blank" rel="noreferrer">/ready →</a>
         </div>
       </header>
@@ -97,7 +146,9 @@ export default async function Page() {
               <span>
                 <span className="step-name">{name}</span>
                 <br />
-                <span className="step-doc">{detail} · docs/{docs}</span>
+                <span className="step-doc">
+                  {detail} · docs/{docs}
+                </span>
               </span>
               <span className={`badge ${state}`}>
                 {state === 'done' ? 'დასრულებული' : state === 'active' ? 'მიმდინარე' : 'რიგში'}
@@ -118,15 +169,101 @@ export default async function Page() {
                   {d.name}
                 </dt>
                 <dd>
-                  {d.state === 'ok' ? 'დაკავშირებული' : `Step ${d.requiredFromStep}-დან`}
+                  {d.state === 'ok'
+                    ? `დაკავშირებული${d.latencyMs !== undefined ? ` · ${d.latencyMs}ms` : ''}`
+                    : d.state === 'unreachable'
+                      ? `მიუწვდომელია — ${d.detail ?? ''}`
+                      : `Step ${d.requiredFromStep}-დან`}
                 </dd>
               </div>
             ))}
+            {ready.migrationsApplied !== null && (
+              <div className="kv">
+                <dt>
+                  <span className="dot ok" />
+                  migrations
+                </dt>
+                <dd>{ready.migrationsApplied} გატარებული</dd>
+              </div>
+            )}
           </dl>
         ) : (
           <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>—</p>
         )}
       </div>
+
+      {catalog?.configured && catalog.counts && (
+        <>
+          <h2>ბაზა — seed მონაცემები</h2>
+          <div className="card">
+            <div className="pill-row">
+              {Object.entries(catalog.counts).map(([key, value]) => (
+                <span className="pill" key={key}>
+                  {key.replace(/_/g, ' ')}: <strong>{value}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {catalog?.comparison && catalog.comparison.length > 0 && (
+        <>
+          <h2>ფასების შედარება</h2>
+          <div className="card">
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--muted)' }}>
+              ერთი და იგივე ნაწილი სამ პარტნიორთან — ეს არის პროდუქტის არსი. „განახლდა X წუთის
+              წინ“ ყოველთვის ჩანს: მოძველებული მარაგი მომხმარებელს დამალული არ უნდა ჰქონდეს (R2).
+            </p>
+            <dl>
+              {catalog.comparison.map((offer, i) => (
+                <div className="kv" key={i}>
+                  <dt>
+                    <span
+                      className={`dot ${AVAILABILITY_DOT[offer.availability_status] ?? 'idle'}`}
+                    />
+                    {offer.partner}
+                    {offer.city ? ` · ${offer.city}` : ''}
+                  </dt>
+                  <dd>
+                    {money(offer.customer_price_minor, offer.currency)}
+                    <span style={{ color: 'var(--muted)' }}>
+                      {' · '}
+                      {AVAILABILITY_LABEL[offer.availability_status] ?? offer.availability_status}
+                      {' · განახლდა '}
+                      {offer.stock_age_minutes} წთ წინ
+                    </span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </>
+      )}
+
+      {catalog?.vehicles && catalog.vehicles.length > 0 && (
+        <>
+          <h2>MockProvider-ის ავტომობილები</h2>
+          <div className="card">
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--muted)' }}>
+              US-spec ჭარბობს განზრახ — საქართველო სწორედ ამას შემოიტანს (ADR-003). US-სა და
+              EU-ს ერთი მოდელის ნაწილები განსხვავდება, ამიტომ market სავალდებულო ველია.
+            </p>
+            <dl>
+              {catalog.vehicles.map((v, i) => (
+                <div className="kv" key={i}>
+                  <dt>
+                    {v.make} {v.model} · {v.model_year}
+                  </dt>
+                  <dd>
+                    {v.engine_code ?? '—'} · <strong>{v.market ?? '—'}</strong>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </>
+      )}
 
       {meta && (
         <>
@@ -153,10 +290,10 @@ export default async function Page() {
             </div>
             <div className="card">
               <dl>
-                {Object.entries(meta.features).map(([k, v]) => (
-                  <div className="kv" key={k}>
-                    <dt>{k}</dt>
-                    <dd>{v ? 'ჩართული' : 'გამორთული (P1)'}</dd>
+                {Object.entries(meta.features).map(([key, value]) => (
+                  <div className="kv" key={key}>
+                    <dt>{key}</dt>
+                    <dd>{value ? 'ჩართული' : 'გამორთული (P1)'}</dd>
                   </div>
                 ))}
               </dl>
@@ -166,16 +303,18 @@ export default async function Page() {
           <h2>Fitment verdicts</h2>
           <div className="card">
             <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--muted)' }}>
-              გადახაზული verdict-ები მომხმარებელს არასოდეს ეჩვენება — „არ ვიცი“
-              ითარგმნება როგორც „არა“, არა როგორც „კი“ (R1, PRD §97).
+              გადახაზული verdict-ები მომხმარებელს არასოდეს ეჩვენება — „არ ვიცი“ ითარგმნება
+              როგორც „არა“, არა როგორც „კი“ (R1, PRD §97).
             </p>
             <div className="pill-row">
-              {meta.domain.fitmentVerdicts.map((v) => (
+              {meta.domain.fitmentVerdicts.map((verdict) => (
                 <span
-                  key={v}
-                  className={`pill ${meta.domain.sellableVerdicts.includes(v) ? 'sellable' : 'blocked'}`}
+                  key={verdict}
+                  className={`pill ${
+                    meta.domain.sellableVerdicts.includes(verdict) ? 'sellable' : 'blocked'
+                  }`}
                 >
-                  {v}
+                  {verdict}
                 </span>
               ))}
             </div>
