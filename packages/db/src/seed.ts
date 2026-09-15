@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { normalizeIdentifier, normalizeVin, vinWmi } from '@autoparts/core';
 import { createVinCipher } from './vin-crypto.js';
+import { seedUsers } from './seed-users.js';
 
 /**
  * The brake-configuration question from PRD §10, kept beside the seed so the
@@ -59,6 +60,11 @@ function oemFor(brand: string, partKey: string): string {
 }
 
 export async function seed(pool: Pool): Promise<Counts> {
+  // Development fixtures, including accounts with published passwords.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to seed a production database.');
+  }
+
   const client = await pool.connect();
   const counts: Counts = {};
 
@@ -76,6 +82,7 @@ export async function seed(pool: Pool): Promise<Counts> {
     counts['vehicle_configurations'] = await seedVehicles(client);
     counts['fitments'] = await seedFitments(client);
     counts['fitment_conflicts'] = await seedConflicts(client);
+    counts['dev_users'] = await seedUsers(client, (legalName) => stableId('partner', legalName));
 
     await client.query('COMMIT');
     return counts;

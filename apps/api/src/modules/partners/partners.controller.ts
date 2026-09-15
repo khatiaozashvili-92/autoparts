@@ -1,0 +1,164 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Length,
+  Min,
+} from 'class-validator';
+import { UserRole, errors, type Principal } from '@autoparts/core';
+import { CurrentPrincipal, Public, Roles } from '../../common/common.js';
+import { PartnersService } from './partners.service.js';
+import { PartnerInventoryService } from './partner-inventory.service.js';
+
+class UpdateOfferDto {
+  @IsOptional() @IsString() basePriceMinor?: string;
+  @IsOptional() @IsInt() @Min(0) stockQuantity?: number;
+  @IsOptional() @IsIn(['IN_STOCK', 'AVAILABLE_TO_ORDER', 'UNAVAILABLE']) availabilityStatus?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
+}
+
+class AddLocationDto {
+  @IsString() @Length(1, 80) name!: string;
+  @IsString() @Length(1, 200) addressLine!: string;
+  @IsString() @Length(1, 80) city!: string;
+  @IsOptional() @IsString() @Length(2, 2) country?: string;
+  @IsOptional() @IsNumber() latitude?: number;
+  @IsOptional() @IsNumber() longitude?: number;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() pickupInstructions?: string;
+}
+
+class OfferQuery {
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsInt() limit?: number;
+}
+
+@ApiTags('partner')
+@Roles(UserRole.PARTNER_USER, UserRole.PARTNER_ADMIN)
+@Controller('partner')
+export class PartnersController {
+  constructor(
+    private readonly partners: PartnersService,
+    private readonly inventory: PartnerInventoryService,
+  ) {}
+
+  @Get('profile')
+  @ApiOperation({ summary: 'The signed-in partner' })
+  profile(@CurrentPrincipal() p: Principal) {
+    return this.partners.profile(this.partners.scopeOf(p));
+  }
+
+  @Get('onboarding')
+  @ApiOperation({ summary: 'What still blocks this partner from going live' })
+  onboarding(@CurrentPrincipal() p: Principal) {
+    return this.partners.onboarding(this.partners.scopeOf(p));
+  }
+
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Order counts, revenue and stock freshness' })
+  dashboard(@CurrentPrincipal() p: Principal) {
+    return this.partners.dashboard(this.partners.scopeOf(p));
+  }
+
+  @Get('offers')
+  @ApiOperation({ summary: "This partner's offers" })
+  offers(@CurrentPrincipal() p: Principal, @Query() query: OfferQuery) {
+    return this.partners.offers(this.partners.scopeOf(p), query);
+  }
+
+  @Patch('offers/:id')
+  @ApiOperation({ summary: 'Change price, stock or availability' })
+  updateOffer(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOfferDto,
+  ) {
+    return this.partners.updateOffer(this.partners.scopeOf(p), id, dto);
+  }
+
+  @Get('locations')
+  locations(@CurrentPrincipal() p: Principal) {
+    return this.partners.locations(this.partners.scopeOf(p));
+  }
+
+  @Post('locations')
+  @ApiOperation({ summary: 'Add a pickup location' })
+  addLocation(@CurrentPrincipal() p: Principal, @Body() dto: AddLocationDto) {
+    return this.partners.addLocation(this.partners.scopeOf(p), dto);
+  }
+
+  @Get('conflicts')
+  @ApiOperation({ summary: 'Fitment conflicts currently hiding this partner’s products' })
+  conflicts(@CurrentPrincipal() p: Principal) {
+    return this.partners.conflicts(this.partners.scopeOf(p));
+  }
+
+  /* ─────────────────────── inventory ─────────────────────── */
+
+  @Post('inventory/csv')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  @ApiOperation({ summary: 'Upload a CSV/TSV price and stock file' })
+  async uploadCsv(
+    @CurrentPrincipal() p: Principal,
+    @UploadedFile() file: { buffer: Buffer; originalname: string } | undefined,
+  ) {
+    if (!file) throw errors.validation({ field: 'file', reason: 'no file uploaded' });
+    const partnerId = this.partners.scopeOf(p);
+    const rows = this.inventory.parseCsv(file.buffer);
+    return this.inventory.importRows(partnerId, rows, 'CSV', file.originalname);
+  }
+
+  @Get('inventory/syncs')
+  syncs(@CurrentPrincipal() p: Principal) {
+    return this.inventory.syncHistory(this.partners.scopeOf(p));
+  }
+
+  @Get('inventory/syncs/:id')
+  @ApiOperation({ summary: 'One sync with its row-level errors' })
+  async sync(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    const row = await this.inventory.syncDetail(this.partners.scopeOf(p), id);
+    if (!row) throw errors.notFound('Sync');
+    return row;
+  }
+
+  /**
+   * A downloadable template with the right headers and two example rows.
+   *
+   * Public because it is the cheapest possible support channel: most import
+   * failures are a wrong header, and a correct file to start from prevents
+   * them (docs/06 §5).
+   */
+  @Public()
+  @Get('inventory/template.csv')
+  @ApiOperation({ summary: 'CSV template with example rows' })
+  template(@Res() res: Response): void {
+    const csv = [
+      'sku,oem,mpn,name,brand,price,currency,quantity,availability,warranty_months',
+      'BP-2211,34116850568,BOS12345,Front Brake Pads,Bosch,420.50,GEL,5,in_stock,24',
+      'OF-1007,11427566327,MAN55011,Oil Filter,Mann-Filter,28.00,GEL,0,available_to_order,12',
+    ].join('\n');
+    res.setHeader('content-type', 'text/csv; charset=utf-8');
+    res.setHeader('content-disposition', 'attachment; filename="autoparts-inventory-template.csv"');
+    res.send(csv);
+  }
+}
