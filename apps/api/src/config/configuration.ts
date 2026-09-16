@@ -42,6 +42,7 @@ const schema = z.object({
   FITMENT_PROVIDER_PRIMARY: z.string().default('mock'),
   FITMENT_PROVIDER_FALLBACK: z.string().default('mock'),
   PAYMENT_PROVIDER: z.string().default('mock'),
+  SMS_PROVIDER: z.string().default('console'),
 
   DEFAULT_COUNTRY: z.string().length(2).default('GE'),
   DEFAULT_CURRENCY: z.string().length(3).default('GEL'),
@@ -51,6 +52,17 @@ const schema = z.object({
   FEATURE_COURIER_DELIVERY: boolFromEnv(false),
   FEATURE_REVIEWS: boolFromEnv(false),
 
+  // Authentication is a phone number and a six-digit code (ADR-015). Five
+  // minutes is long enough to fetch a phone from another room and short
+  // enough that a code read over someone's shoulder is close to worthless.
+  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+  OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  OTP_MAX_PER_HOUR: z.coerce.number().int().positive().default(5),
+  // Returns the code in the API response so a machine with no SMS gateway can
+  // still sign in. Refused in production by loadConfig below.
+  OTP_ECHO_CODE: boolFromEnv(true),
+
   FITMENT_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.5),
   RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(15),
   PICKUP_DEADLINE_HOURS: z.coerce.number().int().positive().default(24),
@@ -58,8 +70,15 @@ const schema = z.object({
 
 export type AppConfig = z.infer<typeof schema>;
 
-export function loadConfig(): AppConfig {
-  const parsed = schema.safeParse(process.env);
+/**
+ * Parses and validates the environment.
+ *
+ * Nest passes the merged `.env`-plus-`process.env` record when this is used as
+ * ConfigModule's `validate`. The default keeps it callable on its own, which
+ * is how the migration CLI and the tests reach it.
+ */
+export function loadConfig(raw: Record<string, unknown> = process.env): AppConfig {
+  const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  ${i.path.join('.')}: ${i.message}`)
@@ -79,6 +98,12 @@ export function loadConfig(): AppConfig {
     }
     if (!config.DATABASE_URL) {
       throw new Error('DATABASE_URL is required in production.');
+    }
+    if (config.OTP_ECHO_CODE) {
+      throw new Error('OTP_ECHO_CODE must be off in production: it returns the code to the caller.');
+    }
+    if (config.SMS_PROVIDER === 'console') {
+      throw new Error('SMS_PROVIDER must be a real gateway in production, not the console stub.');
     }
   }
 

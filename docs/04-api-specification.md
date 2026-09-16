@@ -63,15 +63,51 @@ GET /offers?cursor=eyJ…&limit=20
 
 | Method | Path | აღწერა |
 |--------|------|--------|
-| POST | `/auth/register` | email ან phone + password |
-| POST | `/auth/login` | credentials → access + refresh |
-| POST | `/auth/otp/request` | `{destination, purpose}` |
-| POST | `/auth/otp/verify` | `{destination, code, purpose}` |
+| POST | `/auth/otp/request` | `{phone}` → challenge + SMS |
+| POST | `/auth/otp/verify` | `{challengeId, code}` → access + refresh |
 | POST | `/auth/refresh` | refresh token rotation |
 | POST | `/auth/logout` | refresh token-ის გაუქმება |
-| POST | `/auth/password/forgot` | აღდგენის დაწყება |
-| POST | `/auth/password/reset` | `{token, newPassword}` |
 | GET | `/auth/me` | მიმდინარე user + roles |
+
+`register`, `login` და `password/*` **აღარ არსებობს** —
+[ADR-015](00-index-and-decisions.md). პაროლი პროდუქტს არ აქვს, ამიტომ არც
+აღსადგენი რამ არის; ნომრის დაკარგვის შემთხვევა support-ის საკითხია და არა
+endpoint-ის.
+
+```http
+POST /api/v1/auth/otp/request
+{ "phone": "555 12 34 56" }
+
+200 OK
+{ "challengeId": "…", "expiresIn": 300, "resendAfter": 60,
+  "maskedPhone": "••• •• •• 56" }
+```
+
+ნომერი ნებისმიერი ჩაწერით მიიღება და სერვერზე ნორმალიზდება. პასუხი **ერთნაირია**
+არსებული და უცნობი ნომრისთვის — enumeration-ის თავიდან ასაცილებლად. development-ში
+პასუხს ემატება `devCode` (§4.4 in [07](07-authentication.md)).
+
+```http
+POST /api/v1/auth/otp/verify
+{ "challengeId": "…", "code": "481902", "firstName": "ნინო" }
+
+200 OK
+{ "userId": "…", "isNewUser": true,
+  "accessToken": "…", "refreshToken": "…", "expiresIn": 900 }
+```
+
+`isNewUser` ეუბნება კლიენტს, ახლა შეიქმნა თუ არა ანგარიში — onboarding-ის
+საჩვენებლად. `firstName` მხოლოდ მაშინ გამოიყენება, როცა `isNewUser` ჭეშმარიტია.
+
+| შეცდომა | status | messageKey |
+|---------|--------|------------|
+| ნომერი მობილური არ არის | 400 | `error.auth.phoneInvalid` |
+| ანგარიში დაბლოკილია | 403 | `error.auth.suspended` |
+| კოდი არასწორი / ვადაგასული / დახარჯული | 401 | `error.otp.invalidCode` |
+| ძალიან ადრე ითხოვს ხელახლა | 429 | `error.otp.resendTooSoon` |
+| საათის ჭერი ამოწურა | 429 | `error.otp.tooManyRequests` |
+| 5 მცდელობა გაასუფთავა | 429 | `error.otp.tooManyAttempts` |
+| SMS gateway-მ არ მიიღო | 502 | `error.otp.deliveryFailed` |
 
 დეტალები: [07](07-authentication.md).
 
@@ -330,11 +366,17 @@ X-Timestamp: 1789…
 
 | Scope | ლიმიტი |
 |-------|--------|
-| `/auth/*` IP-ზე | 10 / წუთი |
-| `/auth/otp/request` destination-ზე | 3 / 15 წუთი |
+| `/auth/otp/request` **ნომერზე** | 1 / წუთი და 5 / საათი |
+| `/auth/otp/verify` challenge-ზე | 5 მცდელობა, მერე იხურება |
+| `/auth/otp/request` IP-ზე | 20 / წუთი — განზრახ ფართო, იხ. ქვემოთ |
+| `/auth/otp/verify` IP-ზე | 15 / წუთი |
 | `/vin/decode` user-ზე | 20 / საათი (provider ფულს ღირს) |
 | `/search` user-ზე | 60 / წუთი |
 | `/integration/*` partner key-ზე | 600 / წუთი |
 | ზოგადი authenticated | 300 / წუთი |
 
 გადაჭარბებისას `429` + `Retry-After`.
+
+IP-ზე მიბმული ლიმიტი განზრახ ფართოა: ქართული ბაზრის დიდი ნაწილი ოპერატორის NAT-ის
+უკნიდან შემოდის, და ერთ მისამართზე მკაცრი ზღვარი მთელ უბანს დაბლოკავდა. SMS-ის
+ტუმბვისგან რეალურ დაცვას **ნომერზე** მიბმული ლიმიტი იძლევა.

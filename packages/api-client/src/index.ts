@@ -95,7 +95,12 @@ export class ApiClient {
 
   constructor(private readonly options: ClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // Bound to the global, not stored bare. Calling it back as
+    // `this.fetchImpl(...)` hands `fetch` this client as its receiver, and a
+    // browser answers that with "Illegal invocation" — every request from the
+    // web and mobile apps fails before it reaches the network. Node's fetch
+    // does not care, which is why the end-to-end suites never caught it.
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.tokens = options.tokens ?? memoryTokenStore();
     this.locale = options.locale ?? 'ka';
   }
@@ -160,28 +165,51 @@ export class ApiClient {
 
   /* ─────────────────────────── auth ─────────────────────────── */
 
-  async login(identifier: string, password: string) {
-    const result = await this.request<{ userId: string; accessToken: string; refreshToken: string }>(
-      '/auth/login',
-      { method: 'POST', body: { identifier, password } },
-    );
-    this.tokens.set(result);
-    return result;
+  /**
+   * Step one of signing in: ask for a code.
+   *
+   * The answer is the same shape whether or not the number has an account —
+   * the client cannot tell, and must not try to. `devCode` is present only when
+   * the API is running against the console SMS stub.
+   */
+  requestOtp(phone: string) {
+    return this.request<OtpChallenge>('/auth/otp/request', {
+      method: 'POST',
+      body: { phone },
+    });
   }
 
-  async register(input: { email?: string; phone?: string; password: string; firstName?: string }) {
-    const result = await this.request<{ userId: string; accessToken: string; refreshToken: string }>(
-      '/auth/register',
-      { method: 'POST', body: input },
-    );
+  /**
+   * Step two: exchange the code for a session.
+   *
+   * The name is sent with the code rather than on a later screen; it is used
+   * only when this verification creates the account, and ignored otherwise.
+   */
+  async verifyOtp(input: {
+    challengeId: string;
+    code: string;
+    firstName?: string;
+    lastName?: string;
+    locale?: string;
+    deviceId?: string;
+  }) {
+    const result = await this.request<SignInResult>('/auth/otp/verify', {
+      method: 'POST',
+      body: input,
+    });
     this.tokens.set(result);
     return result;
   }
 
   me() {
-    return this.request<{ id: string; email: string | null; roles: string[]; partnerId: string | null }>(
-      '/auth/me',
-    );
+    return this.request<{
+      id: string;
+      phone: string | null;
+      email: string | null;
+      firstName: string | null;
+      roles: string[];
+      partnerId: string | null;
+    }>('/auth/me');
   }
 
   async logout() {
@@ -313,6 +341,31 @@ export class ApiClient {
 }
 
 /* ─────────────────────── response shapes ─────────────────────── */
+
+export interface OtpChallenge {
+  challengeId: string;
+  /** Seconds until the code stops working. */
+  expiresIn: number;
+  /** Seconds the resend button stays disabled for. */
+  resendAfter: number;
+  /** `••• •• •• 56` — enough to confirm the right number, no more. */
+  maskedPhone: string;
+  /**
+   * Development only. Present when the API runs on the console SMS stub, so a
+   * machine with no gateway can still sign in. Never present in production —
+   * the API refuses to boot there with the echo turned on.
+   */
+  devCode?: string;
+}
+
+export interface SignInResult {
+  userId: string;
+  /** True when verifying this code created the account. */
+  isNewUser: boolean;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
 
 export interface VinDecodeResponse {
   configurationId: string;

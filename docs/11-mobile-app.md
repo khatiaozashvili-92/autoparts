@@ -26,8 +26,8 @@ OEM და part number **ჩანს** პროდუქტის გვერ
 |---|--------|----------|
 | 1 | Splash | token refresh, feature flags |
 | 2 | Onboarding | 3 სლაიდი, გამოტოვებადი |
-| 3 | Login | email/phone + password ან OTP |
-| 4 | Registration | |
+| 3 | Sign in | ტელეფონი → ერთჯერადი კოდი. `textContentType="oneTimeCode"` ავსებს კოდს SMS-იდან |
+| 4 | ~~Registration~~ | ცალკე ეკრანი აღარ არის — პირველი დადასტურებული კოდი ქმნის ანგარიშს ([ADR-015](00-index-and-decisions.md)) |
 | 5 | **Home** | §3 |
 | 6 | My Garage | |
 | 7 | Add Vehicle | VIN + კამერით სკანირება |

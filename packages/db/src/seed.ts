@@ -60,7 +60,7 @@ function oemFor(brand: string, partKey: string): string {
 }
 
 export async function seed(pool: Pool): Promise<Counts> {
-  // Development fixtures, including accounts with published passwords.
+  // Development fixtures, including accounts on published phone numbers.
   if (process.env.NODE_ENV === 'production') {
     throw new Error('Refusing to seed a production database.');
   }
@@ -489,7 +489,13 @@ async function seedConflicts(c: PoolClient): Promise<number> {
       `INSERT INTO fitment_conflicts (id, product_id, configuration_id, partner_id,
                                       claimed_verdict, provider_verdict, provider_name, status)
        VALUES ($1,$2,$3,$4,'COMPATIBLE','NOT_COMPATIBLE','mock','OPEN')
-       ON CONFLICT (id) DO NOTHING`,
+       -- Reopened rather than left alone. DO NOTHING made the seed insert-once
+       -- instead of idempotent: the admin suite resolves this queue, so after
+       -- one run the fixture was gone for good and the suite could never pass
+       -- a second time without a full db:reset.
+       ON CONFLICT (id) DO UPDATE
+         SET status = 'OPEN', resolved_at = NULL, resolved_by = NULL,
+             resolution_note = NULL`,
       [stableId('conflict', row.id), row.product_id, bmw, row.partner_id],
     );
   }

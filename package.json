@@ -18,7 +18,7 @@
     "db:seed": "pnpm --filter @autoparts/db seed",
     "db:reset": "pnpm --filter @autoparts/db reset",
     "test:e2e": "node tests/run-all.mjs",
-    "test:unit": "pnpm --filter @autoparts/providers test && pnpm --filter @autoparts/fitment test"
+    "test:unit": "pnpm --filter @autoparts/core test && pnpm --filter @autoparts/api-client test && pnpm --filter @autoparts/providers test && pnpm --filter @autoparts/fitment test"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

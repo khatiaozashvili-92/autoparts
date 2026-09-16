@@ -10,8 +10,9 @@
  * not in the UI.
  */
 
+import { DEV_PHONES, tokenFor } from './lib/auth.mjs';
+
 const API = process.env.API_URL ? process.env.API_URL + '/api/v1' : 'http://localhost:3001/api/v1';
-const DEV_PASSWORD = 'dev-password-change-me';
 let pass = 0, fail = 0;
 
 const ok = (cond, label, extra = '') => {
@@ -36,18 +37,10 @@ async function call(path, { method = 'GET', body, token, raw, contentType } = {}
   return { status: res.status, body: json, raw: text };
 }
 
-async function login(email) {
-  const r = await call('/auth/login', {
-    method: 'POST',
-    body: { identifier: email, password: DEV_PASSWORD },
-  });
-  return r.body?.accessToken;
-}
-
 console.log('\n-- sign in --');
-const partnerA = await login('partner@autoparts.dev');
-const partnerB = await login('partner2@autoparts.dev');
-const customer = await login('customer@autoparts.dev');
+const partnerA = await tokenFor(call, DEV_PHONES.partner);
+const partnerB = await tokenFor(call, DEV_PHONES.partner2);
+const customer = await tokenFor(call, DEV_PHONES.customer);
 ok(!!partnerA && !!partnerB && !!customer, 'seeded accounts can sign in');
 
 console.log('\n-- profile and scope --');

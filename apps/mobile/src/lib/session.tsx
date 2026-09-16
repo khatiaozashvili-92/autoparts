@@ -8,7 +8,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { ApiClient, type GarageVehicle, type TokenStore } from '@autoparts/api-client';
+import {
+  ApiClient,
+  type GarageVehicle,
+  type OtpChallenge,
+  type TokenStore,
+} from '@autoparts/api-client';
 import { t as translate, type Locale } from '@autoparts/i18n';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -50,6 +55,10 @@ const tokenStore: TokenStore = {
 
 export interface Me {
   id: string;
+  /** The number the account signs in on, and its identity (ADR-015). */
+  phone: string | null;
+  firstName: string | null;
+  /** Optional since ADR-015: an account created by SMS may never have one. */
   email: string | null;
   roles: string[];
   partnerId: string | null;
@@ -60,7 +69,10 @@ interface SessionValue {
   me: Me | null;
   ready: boolean;
   t(key: string): string;
-  signIn(identifier: string, password: string): Promise<void>;
+  /** Step one: ask the API to text a code to this number. */
+  requestCode(phone: string): Promise<OtpChallenge>;
+  /** Step two: exchange the code for a session. */
+  verifyCode(input: { challengeId: string; code: string; firstName?: string }): Promise<void>;
   signOut(): Promise<void>;
   vehicles: GarageVehicle[];
   selectedVehicle: GarageVehicle | null;
@@ -116,9 +128,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     })();
   }, [api, reloadGarage]);
 
-  const signIn = useCallback(
-    async (identifier: string, password: string) => {
-      await api.login(identifier, password);
+  const requestCode = useCallback((phone: string) => api.requestOtp(phone), [api]);
+
+  const verifyCode = useCallback(
+    async (input: { challengeId: string; code: string; firstName?: string }) => {
+      await api.verifyOtp(input);
       setMe(await api.me());
       await reloadGarage();
     },
@@ -137,7 +151,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     me,
     ready,
     t: (key: string) => translate(key, locale),
-    signIn,
+    requestCode,
+    verifyCode,
     signOut,
     vehicles,
     selectedVehicle: vehicles.find((v) => v.id === selectedId) ?? null,

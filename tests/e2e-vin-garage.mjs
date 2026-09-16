@@ -9,6 +9,8 @@
  * a full VIN never leaves the API, one user never reads another user's
  * garage, and a reused refresh token kills every session.
  */
+import { signIn, uniquePhone } from './lib/auth.mjs';
+
 const API = process.env.API_URL ? process.env.API_URL + '/api/v1' : 'http://localhost:3001/api/v1';
 let pass = 0, fail = 0;
 
@@ -32,31 +34,41 @@ async function call(path, { method = 'GET', body, token } = {}) {
   return { status: res.status, body: json, raw: text };
 }
 
-const stamp = Date.now();
-const userA = { email: `a${stamp}@example.com`, password: 'correct-horse-battery' };
-const userB = { email: `b${stamp}@example.com`, password: 'another-long-passphrase' };
+const phoneA = uniquePhone();
+const phoneB = uniquePhone();
 
-console.log('\n-- auth --');
-let r = await call('/auth/register', { method: 'POST', body: userA });
-ok(r.status === 201 && r.body?.accessToken, 'register returns a token pair', r.raw.slice(0, 200));
+console.log('\n-- auth: phone + one-time code (ADR-015) --');
+let r = await call('/auth/otp/request', { method: 'POST', body: { phone: '032 2 555 555' } });
+ok(r.status === 400 && r.body?.error?.messageKey === 'error.auth.phoneInvalid',
+   'a landline is refused before an SMS is spent on it', r.raw.slice(0, 160));
+
+r = await call('/auth/otp/request', { method: 'POST', body: { phone: phoneA } });
+ok(r.status === 200 && r.body?.challengeId, 'requesting a code returns a challenge', r.raw.slice(0, 200));
+ok(!r.raw.includes(phoneA.slice(0, 7)), 'the response masks the number back', r.body?.maskedPhone);
+const challengeA = r.body?.challengeId;
+const codeA = r.body?.devCode;
+
+r = await call('/auth/otp/request', { method: 'POST', body: { phone: phoneA } });
+ok(r.status === 429 && r.body?.error?.messageKey === 'error.otp.resendTooSoon',
+   'a second code for the same number is refused inside the cooldown', r.raw.slice(0, 160));
+
+r = await call('/auth/otp/verify', { method: 'POST', body: { challengeId: challengeA, code: '000000' } });
+ok(r.status === 401 && r.body?.error?.messageKey === 'error.otp.invalidCode', 'a wrong code is rejected');
+
+r = await call('/auth/otp/verify', {
+  method: 'POST',
+  body: { challengeId: '00000000-0000-4000-8000-000000000000', code: codeA },
+});
+ok(r.status === 401, 'an unknown challenge gives the same 401, not a 404', `got ${r.status}`);
+
+r = await call('/auth/otp/verify', { method: 'POST', body: { challengeId: challengeA, code: codeA } });
+ok(r.status === 200 && r.body?.accessToken, 'the right code returns a token pair', r.raw.slice(0, 200));
+ok(r.body?.isNewUser === true, 'an unknown number is registered by verifying its first code');
 const tokenA = r.body?.accessToken;
 const refreshA = r.body?.refreshToken;
 
-r = await call('/auth/register', { method: 'POST', body: { email: userA.email, password: 'yet-another-passphrase' } });
-ok(r.status === 409, 'duplicate registration is refused');
-ok(!/already|exists|registered/i.test(r.body?.error?.message ?? ''), 'refusal does not confirm the address exists', r.body?.error?.message);
-
-r = await call('/auth/register', { method: 'POST', body: { email: `x${stamp}@example.com`, password: 'password123' } });
-ok(r.status === 400 && r.body?.error?.messageKey === 'error.password.tooCommon', 'a common password is rejected', r.raw.slice(0, 160));
-
-r = await call('/auth/login', { method: 'POST', body: { identifier: userA.email, password: 'wrong-password-here' } });
-ok(r.status === 401, 'wrong password is rejected');
-
-r = await call('/auth/login', { method: 'POST', body: { identifier: `nobody${stamp}@example.com`, password: 'wrong-password-here' } });
-ok(r.status === 401, 'unknown account gives the same 401');
-
-r = await call('/auth/login', { method: 'POST', body: { identifier: userA.email, password: userA.password } });
-ok(r.status === 200 && r.body?.accessToken, 'login succeeds', `status=${r.status} ${r.raw.slice(0,150)}`);
+r = await call('/auth/otp/verify', { method: 'POST', body: { challengeId: challengeA, code: codeA } });
+ok(r.status === 401, 'the same code cannot be spent twice');
 
 r = await call('/auth/me', { token: tokenA });
 ok(r.status === 200 && r.body?.roles?.includes('CUSTOMER'), 'me returns the CUSTOMER role', r.raw.slice(0, 160));
@@ -124,8 +136,7 @@ ok(r.body?.length === 1, 'the garage holds one vehicle');
 ok(r.body?.[0]?.label === 'chemi BMW', 'the custom name is used as the label');
 
 console.log('\n-- isolation --');
-r = await call('/auth/register', { method: 'POST', body: userB });
-const tokenB = r.body?.accessToken;
+const tokenB = (await signIn(call, phoneB)).token;
 
 r = await call(`/vehicles/${vehicleId}`, { token: tokenB });
 ok(r.status === 404, 'a vehicle belonging to someone else reads as absent, not forbidden', `got ${r.status}`);

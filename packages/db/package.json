@@ -23,8 +23,7 @@
     "@autoparts/core": "workspace:*",
     "kysely": "^0.27.5",
     "pg": "^8.13.1",
-    "dotenv": "^16.4.7",
-    "@node-rs/argon2": "^2.0.2"
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

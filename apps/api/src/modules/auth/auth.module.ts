@@ -4,7 +4,8 @@ import { JwtModule } from '@nestjs/jwt';
 import type { NextFunction, Request, Response } from 'express';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { PasswordService } from './password.service.js';
+import { OtpService } from './otp.service.js';
+import { smsProvider, SMS_PROVIDER } from './sms.provider.js';
 import { TokenService } from './token.service.js';
 import type { AppConfig } from '../../config/configuration.js';
 
@@ -45,7 +46,7 @@ export class PrincipalMiddleware implements NestMiddleware {
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, PasswordService, TokenService, PrincipalMiddleware],
-  exports: [AuthService, TokenService, PasswordService],
+  providers: [AuthService, OtpService, TokenService, PrincipalMiddleware, smsProvider],
+  exports: [AuthService, TokenService, OtpService, SMS_PROVIDER],
 })
 export class AuthModule {}

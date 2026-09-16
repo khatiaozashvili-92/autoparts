@@ -7,8 +7,9 @@
  * always for one specific vehicle, never "parts in general".
  */
 
+import { DEV_PHONES, tokenFor } from './lib/auth.mjs';
+
 const API = process.env.API_URL ? process.env.API_URL + '/api/v1' : 'http://localhost:3001/api/v1';
-const DEV_PASSWORD = 'dev-password-change-me';
 let pass = 0, fail = 0;
 
 const ok = (cond, label, extra = '') => {
@@ -35,12 +36,10 @@ async function call(path, { method = 'GET', body, token, locale = 'ka' } = {}) {
 const SELLABLE = ['EXACT', 'COMPATIBLE', 'CONDITIONAL'];
 
 console.log('\n-- setup --');
-let r = await call('/auth/login', {
-  method: 'POST',
-  body: { identifier: 'customer@autoparts.dev', password: DEV_PASSWORD },
-});
-const token = r.body?.accessToken;
+const token = await tokenFor(call, DEV_PHONES.customer);
 ok(!!token, 'signed in as the seeded customer');
+
+let r;
 
 r = await call('/vin/decode', { method: 'POST', body: { vin: 'WBA1J5C50FV123456' } });
 r = await call('/vehicles', { method: 'POST', token, body: { configurationId: r.body.configurationId } });

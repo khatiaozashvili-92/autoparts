@@ -1,25 +1,23 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Ip, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, IsUUID, Length, Matches, MaxLength } from 'class-validator';
 import { CurrentPrincipal, Public } from '../../common/common.js';
 import { AuthService } from './auth.service.js';
 import { TokenService } from './token.service.js';
-import { MIN_PASSWORD_LENGTH } from './password.service.js';
 import type { Principal } from '@autoparts/core';
 
-class RegisterDto {
-  @IsOptional() @IsEmail() email?: string;
-  @IsOptional() @IsString() phone?: string;
-  @IsString() @MinLength(MIN_PASSWORD_LENGTH) password!: string;
-  @IsOptional() @IsString() firstName?: string;
-  @IsOptional() @IsString() lastName?: string;
-  @IsOptional() @IsString() locale?: string;
+class RequestCodeDto {
+  /** Normalised server-side; the client may send any readable spelling. */
+  @IsString() @MaxLength(20) phone!: string;
 }
 
-class LoginDto {
-  @IsString() identifier!: string;
-  @IsString() password!: string;
+class VerifyCodeDto {
+  @IsUUID() challengeId!: string;
+  @IsString() @Matches(/^\d{6}$/, { message: 'code must be six digits' }) code!: string;
+  @IsOptional() @IsString() @Length(1, 80) firstName?: string;
+  @IsOptional() @IsString() @Length(1, 80) lastName?: string;
+  @IsOptional() @IsString() locale?: string;
   @IsOptional() @IsString() deviceId?: string;
 }
 
@@ -36,23 +34,33 @@ export class AuthController {
     private readonly tokens: TokenService,
   ) {}
 
-  // Tighter than the global limit: these are the endpoints worth guessing at
-  // (docs/04 §10).
+  /**
+   * Tighter than the global limit (docs/04 §10), but deliberately not tight.
+   *
+   * The real defence against code-pumping is per-number and lives in
+   * `OtpService`: one code a minute, five an hour, for that number. This limit
+   * only catches something hammering the endpoint from one address, so it has
+   * to stay loose enough for the address a whole office — or a mobile carrier's
+   * NAT, which is most of the Georgian market — signs in from.
+   */
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Post('register')
-  @ApiOperation({ summary: 'Create an account with an e-mail or phone number' })
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('otp/request')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Send a one-time code to a phone number' })
+  requestCode(@Body() dto: RequestCodeDto, @Ip() ip: string) {
+    return this.auth.requestCode({ phone: dto.phone, requestIp: ip });
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Post('login')
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
+  @Post('otp/verify')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Exchange credentials for a token pair' })
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  @ApiOperation({
+    summary: 'Exchange a one-time code for a token pair, creating the account if it is new',
+  })
+  verifyCode(@Body() dto: VerifyCodeDto) {
+    return this.auth.verifyCode(dto);
   }
 
   @Public()

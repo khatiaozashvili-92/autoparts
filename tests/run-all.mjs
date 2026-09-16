@@ -1,9 +1,10 @@
 /**
  * Runs every end-to-end suite in order.
  *
- * With a pause between suites: auth is rate limited per IP (10/minute, docs/04
- * §10) and six suites back to back legitimately trip it. The limiter working is
- * the point — the harness waits rather than the product loosening.
+ * With a pause between suites. Since ADR-015 the binding limit is per number
+ * rather than per IP: one code a minute for a given phone, and the suites sign
+ * the same seeded accounts in more than once. The limiter working is the point
+ * — the harness waits rather than the product loosening.
  */
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';

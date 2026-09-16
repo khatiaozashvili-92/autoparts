@@ -8,6 +8,9 @@
 
 const SENSITIVE_KEYS = new Set([
   'vin',
+  // Passwords are gone from the product (ADR-015), but the keys stay on the
+  // list: an old log line, a third-party payload or a partner's CSV can still
+  // carry one, and this set is the last thing between that and a log file.
   'password',
   'passwordhash',
   'password_hash',
@@ -23,6 +26,11 @@ const SENSITIVE_KEYS = new Set([
   'code',
   'codehash',
   'code_hash',
+  'devcode',
+  'otp',
+  'otpcode',
+  'challengeid',
+  'challenge_id',
   'cardnumber',
   'card_number',
   'cvv',

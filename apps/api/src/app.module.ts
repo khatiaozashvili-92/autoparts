@@ -31,7 +31,13 @@ import { CatalogStatsController } from './modules/health/catalog-stats.controlle
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [loadConfig],
+      // `validate`, not `load`: ConfigService.get() consults the validated
+      // environment first and only then falls back to raw process.env, and
+      // `load` never populates the former. Registered the other way round,
+      // every value arrives as the text it had in .env — boolFromEnv is
+      // bypassed, so FEATURE_REVIEWS=false reads as the truthy string
+      // "false", and OTP_TTL_SECONDS arrives as "300" rather than 300.
+      validate: loadConfig,
       // One .env at the repo root serves the whole monorepo. Resolved from
       // this file rather than cwd, so the API loads the same config whether it
       // is started by turbo, by pnpm --filter, or by 'node dist/main.js'.

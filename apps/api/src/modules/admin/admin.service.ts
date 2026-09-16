@@ -384,17 +384,29 @@ export class AdminService {
 
   async users(filter: { search?: string; limit?: number }) {
     return this.db.query(
-      `SELECT u.id, u.email, u.first_name, u.last_name, u.locale, u.created_at,
+      `SELECT u.id, u.phone, u.email, u.first_name, u.last_name, u.locale, u.created_at,
               u.suspended_at, u.last_login_at,
               (SELECT array_agg(ur.role::text) FROM user_roles ur WHERE ur.user_id = u.id) AS roles,
               (SELECT count(*) FROM vehicles v
                 WHERE v.user_id = u.id AND v.deleted_at IS NULL) AS vehicles,
               (SELECT count(*) FROM orders o WHERE o.user_id = u.id) AS orders
        FROM users u
-       WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
+       -- Matched on the number and the name as well as the e-mail. The phone
+       -- is the identity now (ADR-015) and a customer who signed up by SMS has
+       -- no e-mail at all, so searching e-mail alone would hide every account
+       -- created since. $2 is the search term reduced to digits, which lets a
+       -- support agent paste a number in whichever shape it was read out.
+       WHERE ($1::text IS NULL
+              OR u.email ILIKE '%' || $1 || '%'
+              OR ($2::text <> '' AND u.phone LIKE '%' || $2 || '%')
+              OR (u.first_name || ' ' || coalesce(u.last_name, '')) ILIKE '%' || $1 || '%')
        ORDER BY u.created_at DESC
-       LIMIT $2`,
-      [filter.search ?? null, Math.min(filter.limit ?? 50, 200)],
+       LIMIT $3`,
+      [
+        filter.search ?? null,
+        (filter.search ?? '').replace(/\D/g, ''),
+        Math.min(filter.limit ?? 50, 200),
+      ],
     );
   }
 

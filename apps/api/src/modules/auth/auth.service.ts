@@ -1,15 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { timingSafeEqual } from 'node:crypto';
-import { AppError, ErrorCode, UserRole, errors, type Principal } from '@autoparts/core';
+import {
+  AppError,
+  ErrorCode,
+  UserRole,
+  errors,
+  isMobileNumber,
+  normalizePhone,
+  type Principal,
+} from '@autoparts/core';
 import { DatabaseService } from '../../database/database.module.js';
-import { PasswordService } from './password.service.js';
+import { OtpService, type OtpChallenge } from './otp.service.js';
 import { TokenService, type TokenPair } from './token.service.js';
 
 interface UserRow {
   id: string;
   email: string | null;
   phone: string | null;
-  password_hash: string | null;
   first_name: string | null;
   last_name: string | null;
   locale: string;
@@ -17,129 +23,93 @@ interface UserRow {
   suspended_at: Date | null;
 }
 
-export interface RegisterInput {
-  email?: string;
-  phone?: string;
-  password: string;
+export interface RequestCodeInput {
+  phone: string;
+  requestIp?: string | null;
+}
+
+export interface VerifyCodeInput {
+  challengeId: string;
+  code: string;
+  /** Collected on the code screen, and only used when the account is new. */
   firstName?: string;
   lastName?: string;
   locale?: string;
-}
-
-export interface LoginInput {
-  identifier: string;
-  password: string;
   deviceId?: string;
 }
 
-/**
- * A dummy hash to verify against when no user matched, so a failed login takes
- * roughly the same time whether or not the account exists. Without it, response
- * timing enumerates registered users (docs/07 §6.2).
- */
-const DUMMY_HASH =
-  '$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHR2YWx1ZQ$0000000000000000000000000000000000000000000';
+export interface SignInResult extends TokenPair {
+  userId: string;
+  /** True when this verification created the account (PRD §12). */
+  isNewUser: boolean;
+}
 
+/**
+ * Authentication is a phone number and a one-time code — nothing else
+ * (ADR-015).
+ *
+ * There is no registration step separate from signing in. A number that has
+ * no account gets one at the moment its first code is verified, because
+ * asking someone to pick "register" or "log in" only makes them guess which
+ * of the two they did last time.
+ */
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger('AuthService');
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly passwords: PasswordService,
+    private readonly otp: OtpService,
     private readonly tokens: TokenService,
   ) {}
 
-  async register(input: RegisterInput): Promise<{ userId: string } & TokenPair> {
-    const email = input.email?.trim().toLowerCase() || null;
-    const phone = normalizePhone(input.phone) || null;
+  /** Step one: send a code. Says nothing about whether the number is known. */
+  async requestCode(input: RequestCodeInput): Promise<OtpChallenge> {
+    const phone = normalizePhone(input.phone);
 
-    if (!email && !phone) {
+    if (!phone || !isMobileNumber(phone)) {
       throw new AppError({
         code: ErrorCode.VALIDATION_FAILED,
         status: 400,
-        message: 'Either an email or a phone number is required.',
-        messageKey: 'error.auth.identifierRequired',
+        message: 'A mobile number that can receive an SMS is required.',
+        messageKey: 'error.auth.phoneInvalid',
       });
     }
 
-    const passwordProblem = this.passwords.validate(input.password);
-    if (passwordProblem) {
-      throw new AppError({
-        code: ErrorCode.VALIDATION_FAILED,
-        status: 400,
-        message: 'Password does not meet the minimum requirements.',
-        messageKey: passwordProblem,
-      });
-    }
-
-    const existing = await this.findByIdentifier(email ?? phone!);
-    if (existing) {
-      // Same shape and status as a successful-looking failure elsewhere: do not
-      // confirm that this address is already registered.
-      throw new AppError({
-        code: ErrorCode.CONFLICT,
-        status: 409,
-        message: 'Registration could not be completed.',
-        messageKey: 'error.auth.registrationFailed',
-      });
-    }
-
-    const passwordHash = await this.passwords.hash(input.password);
-
-    const [user] = await this.db.query<{ id: string }>(
-      `INSERT INTO users (email, phone, password_hash, first_name, last_name, locale)
-       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'ka'))
-       RETURNING id`,
-      [email, phone, passwordHash, input.firstName ?? null, input.lastName ?? null, input.locale ?? null],
+    // A suspended account is refused here rather than after the code is typed,
+    // so a blocked customer is not charged an SMS to be told no.
+    const [existing] = await this.db.query<{ suspended_at: Date | null }>(
+      `SELECT suspended_at FROM users WHERE phone = $1`,
+      [phone],
     );
-    if (!user) throw errors.internal();
+    if (existing?.suspended_at) throw suspended();
 
+    return this.otp.request(phone, input.requestIp ?? null);
+  }
+
+  /** Step two: check the code, then find or create the account behind it. */
+  async verifyCode(input: VerifyCodeInput): Promise<SignInResult> {
+    // The number comes back from the challenge, never from the request body.
+    const phone = await this.otp.verify(input.challengeId, input.code);
+
+    const existing = await this.findByPhone(phone);
+    if (existing?.suspended_at) throw suspended();
+
+    const { user, isNewUser } = existing
+      ? { user: existing, isNewUser: false }
+      : { user: await this.createCustomer(phone, input), isNewUser: true };
+
+    // Verifying a code is proof the number reaches this person, so the number
+    // is marked verified on every sign-in, not only the first.
     await this.db.query(
-      `INSERT INTO user_roles (user_id, role) VALUES ($1, 'CUSTOMER')`,
+      `UPDATE users SET phone_verified_at = now(), last_login_at = now() WHERE id = $1`,
       [user.id],
     );
 
-    const pair = await this.tokens.issue(user.id, [UserRole.CUSTOMER], null);
-    return { userId: user.id, ...pair };
-  }
-
-  async login(input: LoginInput): Promise<{ userId: string } & TokenPair> {
-    const user = await this.findByIdentifier(input.identifier);
-
-    // Always run a verification, even with no user, so the two paths cost the
-    // same amount of time.
-    const hashToCheck = user?.password_hash ?? DUMMY_HASH;
-    const passwordOk = await this.passwords.verify(hashToCheck, input.password);
-
-    if (!user || !passwordOk || !constantTrue(user.password_hash !== null)) {
-      throw new AppError({
-        code: ErrorCode.UNAUTHENTICATED,
-        status: 401,
-        message: 'Invalid credentials.',
-        messageKey: 'error.auth.invalidCredentials',
-      });
-    }
-
-    if (user.suspended_at) {
-      throw new AppError({
-        code: ErrorCode.FORBIDDEN,
-        status: 403,
-        message: 'This account is suspended.',
-        messageKey: 'error.auth.suspended',
-      });
-    }
-
-    if (this.passwords.needsRehash(user.password_hash!)) {
-      const upgraded = await this.passwords.hash(input.password);
-      await this.db.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [upgraded, user.id]);
-    }
-
-    await this.db.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [user.id]);
-
     const { roles, partnerId } = await this.tokens.rolesFor(user.id);
     const pair = await this.tokens.issue(user.id, roles, partnerId, input.deviceId);
-    return { userId: user.id, ...pair };
+
+    return { userId: user.id, isNewUser, ...pair };
   }
 
   async me(principal: Principal) {
@@ -163,34 +133,44 @@ export class AuthService {
     };
   }
 
-  private async findByIdentifier(identifier: string): Promise<UserRow | null> {
-    const trimmed = identifier.trim();
-    const asPhone = normalizePhone(trimmed);
+  private async createCustomer(phone: string, input: VerifyCodeInput): Promise<UserRow> {
+    // ON CONFLICT rather than a check-then-insert: two codes verified for the
+    // same number at once would otherwise race into a duplicate-key error
+    // instead of both landing on the same account.
+    const [created] = await this.db.query<UserRow>(
+      `INSERT INTO users (phone, first_name, last_name, locale, phone_verified_at)
+       VALUES ($1, $2, $3, COALESCE($4, 'ka'), now())
+       ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
+       RETURNING id, email, phone, first_name, last_name, locale, country, suspended_at`,
+      [phone, input.firstName ?? null, input.lastName ?? null, input.locale ?? null],
+    );
+    if (!created) throw errors.internal();
+
+    await this.db.query(
+      `INSERT INTO user_roles (user_id, role) VALUES ($1, 'CUSTOMER')
+       ON CONFLICT DO NOTHING`,
+      [created.id],
+    );
+
+    this.logger.log(JSON.stringify({ event: 'user_registered', userId: created.id }));
+    return created;
+  }
+
+  private async findByPhone(phone: string): Promise<UserRow | null> {
     const [row] = await this.db.query<UserRow>(
-      `SELECT id, email, phone, password_hash, first_name, last_name, locale, country, suspended_at
-       FROM users
-       WHERE email = $1 OR (phone IS NOT NULL AND phone = $2)
-       LIMIT 1`,
-      [trimmed.toLowerCase(), asPhone],
+      `SELECT id, email, phone, first_name, last_name, locale, country, suspended_at
+       FROM users WHERE phone = $1`,
+      [phone],
     );
     return row ?? null;
   }
 }
 
-/** Keeps the boolean check off the fast path so both branches cost the same. */
-function constantTrue(value: boolean): boolean {
-  const a = Buffer.from([value ? 1 : 0]);
-  const b = Buffer.from([1]);
-  return timingSafeEqual(a, b);
-}
-
-/** Georgian numbers are stored in E.164; anything else is kept as typed. */
-function normalizePhone(phone: string | undefined): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/[^\d+]/g, '');
-  if (!digits) return null;
-  if (digits.startsWith('+')) return digits;
-  if (digits.length === 9 && digits.startsWith('5')) return `+995${digits}`;
-  if (digits.startsWith('995')) return `+${digits}`;
-  return digits;
+function suspended(): AppError {
+  return new AppError({
+    code: ErrorCode.FORBIDDEN,
+    status: 403,
+    message: 'This account is suspended.',
+    messageKey: 'error.auth.suspended',
+  });
 }

@@ -273,13 +273,26 @@ Buy/Reserve მომენტში final validation მაინც სცა�
 FITMENT_PROVIDER_PRIMARY=nhtsa_vpic
 FITMENT_PROVIDER_FALLBACK=mock
 PAYMENT_PROVIDER=mock
+SMS_PROVIDER=console
 DEFAULT_COUNTRY=GE
 DEFAULT_CURRENCY=GEL
 DEFAULT_LOCALE=ka
 FEATURE_REQUEST_PART=false
 FEATURE_COURIER_DELIVERY=false
+OTP_ECHO_CODE=false
 ```
 `DEFAULT_*` არის **default**, არა hardcode (§80). `if (country === 'GE')` კოდში აკრძალულია.
+
+`SMS_PROVIDER` და `OTP_ECHO_CODE` ერთადერთი ორი პარამეტრია, რომლებსაც
+`loadConfig` **production-ში ამოწმებს და უარყოფს**: `console` gateway და
+პასუხში დაბრუნებული კოდი development-ის ხელსაწყოებია, და მათი ცოცხალ სისტემაზე
+მოხვედრა შესვლის სრულ გვერდის ავლას ნიშნავს ([ADR-015](00-index-and-decisions.md)).
+
+> ⚠ `ConfigModule` რეგისტრირებულია `validate: loadConfig`-ით და **არა**
+> `load: [loadConfig]`-ით. `ConfigService.get()` ჯერ validated env-ს კითხულობს
+> და მხოლოდ მერე process.env-ს; `load` პირველს არ ავსებს, ამიტომ მასთან ყველა
+> მნიშვნელობა ტექსტად ბრუნდება — `FEATURE_REVIEWS=false` ხდება ჭეშმარიტი
+> სტრიქონი `"false"` და ყველა feature flag სამუდამოდ ჩართული რჩება.
 
 ---
 

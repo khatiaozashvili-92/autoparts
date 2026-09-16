@@ -10,6 +10,8 @@
  * never reach the client as "maybe".
  */
 
+import { signInAsNewCustomer } from './lib/auth.mjs';
+
 const API = process.env.API_URL ? process.env.API_URL + '/api/v1' : 'http://localhost:3001/api/v1';
 let pass = 0, fail = 0;
 
@@ -37,13 +39,10 @@ async function call(path, { method = 'GET', body, token, locale = 'ka' } = {}) {
 const SELLABLE = ['EXACT', 'COMPATIBLE', 'CONDITIONAL'];
 
 console.log('\n-- setup --');
-const stamp = Date.now();
-let r = await call('/auth/register', {
-  method: 'POST',
-  body: { email: `cat${stamp}@example.com`, password: 'correct-horse-battery' },
-});
-const token = r.body?.accessToken;
-ok(!!token, 'registered a user', r.raw.slice(0, 160));
+const token = (await signInAsNewCustomer(call)).token;
+ok(!!token, 'a new number registers itself by verifying its first code');
+
+let r;
 
 r = await call('/vin/decode', { method: 'POST', body: { vin: 'WBA1J5C50FV123456' } });
 const bmwConfig = r.body?.configurationId;

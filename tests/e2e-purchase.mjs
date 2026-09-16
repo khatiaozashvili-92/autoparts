@@ -8,8 +8,9 @@
  * (§49) and cancellation with an automatic refund (§51).
  */
 
+import { DEV_PHONES, signInAsNewCustomer, tokenFor } from './lib/auth.mjs';
+
 const API = process.env.API_URL ? process.env.API_URL + '/api/v1' : 'http://localhost:3001/api/v1';
-const DEV_PASSWORD = 'dev-password-change-me';
 let pass = 0, fail = 0;
 
 const ok = (cond, label, extra = '') => {
@@ -33,18 +34,20 @@ async function call(path, { method = 'GET', body, token, headers = {} } = {}) {
   return { status: res.status, body: json, raw: text };
 }
 
-const login = async (email) =>
-  (await call('/auth/login', { method: 'POST', body: { identifier: email, password: DEV_PASSWORD } }))
-    .body?.accessToken;
+const login = (phone) => tokenFor(call, phone);
 
 console.log('\n-- setup --');
-const stamp = Date.now();
-let r = await call('/auth/register', {
-  method: 'POST',
-  body: { email: `buy${stamp}@example.com`, password: 'correct-horse-battery' },
-});
-const customer = r.body?.accessToken;
+// A number nobody has used, so this run gets a clean garage, cart and order
+// history rather than inheriting the last run's.
+const buyer = await signInAsNewCustomer(call, { firstName: 'Buyer' });
+const customer = buyer.token;
 ok(!!customer, 'a customer account exists');
+
+// Idempotency keys have to be unique per run, or the second run of this suite
+// replays the first one's checkout instead of performing its own.
+const stamp = Date.now();
+
+let r;
 
 r = await call('/vin/decode', { method: 'POST', body: { vin: 'WBA1J5C50FV123456' } });
 r = await call('/vehicles', { method: 'POST', token: customer, body: { configurationId: r.body.configurationId } });
@@ -151,7 +154,7 @@ r = await call('/cart', { token: customer });
 ok(r.body?.items?.length === 0, 'the cart is emptied after a successful purchase');
 
 console.log('\n-- pickup (PRD 48-50) --');
-const partner = await login('partner@autoparts.dev');
+const partner = await login(DEV_PHONES.partner);
 
 r = await call(`/orders/${order.orderId}/pickup-code`, { token: customer });
 ok(r.status === 409, 'no code before the partner marks it ready', `got ${r.status}`);
@@ -217,11 +220,11 @@ r = await call(`/orders/${order2.orderId}`, { token: customer });
 ok(r.body?.payment_status === 'REFUNDED', 'and the money is refunded automatically');
 
 console.log('\n-- isolation --');
-const otherPartner = await login('partner2@autoparts.dev');
+const otherPartner = await login(DEV_PHONES.partner2);
 r = await call(`/partner/orders/${order2.orderId}/ready`, { method: 'POST', token: otherPartner });
 ok(r.status === 404, "another partner cannot touch this order", `got ${r.status}`);
 
-r = await call(`/orders/${order.orderId}`, { token: await login('customer@autoparts.dev') });
+r = await call(`/orders/${order.orderId}`, { token: await login(DEV_PHONES.customer) });
 ok(r.status === 404, "another customer cannot read this order", `got ${r.status}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);

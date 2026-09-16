@@ -37,18 +37,29 @@ pnpm dev
 | Swagger UI | http://localhost:3001/docs |
 | Readiness | http://localhost:3001/ready |
 
+### Signing in
+
+There are no passwords. Signing in is a phone number and a six-digit code sent
+by SMS (ADR-015) — a number with no account gets one the first time it verifies
+a code, so there is no separate registration step.
+
+There is no SMS gateway on a developer machine, so `SMS_PROVIDER=console` prints
+the code to the API log and `OTP_ECHO_CODE=true` also returns it in the
+response, where the login page shows it. **Both are refused in production**: the
+API will not start with `NODE_ENV=production` and either one set.
+
 ### Development accounts
 
-Seeded by `pnpm db:seed`, password `dev-password-change-me`. The seed refuses to
-run when `NODE_ENV=production`.
+Seeded by `pnpm db:seed`. The seed refuses to run when `NODE_ENV=production`.
+The numbers are in the 555 00 00 xx block, which is not issued to subscribers.
 
-| Account | Role |
-|---------|------|
-| `customer@autoparts.dev` | Customer |
-| `partner@autoparts.dev` | Partner admin — Auto Motors |
-| `partner2@autoparts.dev` | Partner admin — Parts Center |
-| `admin@autoparts.dev` | Platform admin |
-| `super@autoparts.dev` | Super admin |
+| Sign in with | Role |
+|--------------|------|
+| `555 00 00 01` | Customer |
+| `555 00 00 02` | Partner admin — Auto Motors |
+| `555 00 00 03` | Partner admin — Parts Center |
+| `555 00 00 04` | Platform admin |
+| `555 00 00 05` | Super admin |
 
 ### Sample VINs
 
@@ -118,17 +129,25 @@ continue if a file that already ran was edited. Add a new migration instead.
 ## Tests
 
 ```bash
-pnpm test:unit    # 47 unit assertions, no database or network
-pnpm test:e2e     # 200 end-to-end assertions against a running API
+pnpm test:unit    # 62 unit assertions, no database or network
+pnpm test:e2e     # end-to-end assertions against a running API
 pnpm test         # both
 ```
 
-The end-to-end runner pauses between suites: auth is rate limited per IP, and
-six suites back to back legitimately trip it.
+The end-to-end suites sign in the same way the apps do, which means they need
+the API running with `SMS_PROVIDER=console` and `OTP_ECHO_CODE=true`. Against a
+real gateway they cannot sign in — correctly, since neither can anyone holding
+somebody else's phone.
+
+The runner pauses between suites: a given number may only be sent one code a
+minute, and the suites sign the same seeded accounts in more than once. The
+limiter working is the point — the harness waits rather than the product
+loosening. A full run twice within the hour also needs `OTP_MAX_PER_HOUR` raised
+in your local `.env`; the shipped default of 5 is the product's.
 
 | Suite | Covers |
 |-------|--------|
-| `e2e-vin-garage` | auth, VIN decoding, garage, isolation |
+| `e2e-vin-garage` | phone sign-in, code handling, VIN decoding, garage, isolation |
 | `e2e-catalog-fitment` | catalogue, locales, the R1 rule |
 | `e2e-partner` | partner scoping, CSV import, offers |
 | `e2e-search` | Georgian/English, synonyms, typos, OEM lookup |

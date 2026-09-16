@@ -85,8 +85,8 @@ CREATE TYPE notification_channel AS ENUM ('IN_APP','SMS','EMAIL','PUSH');
 CREATE TABLE users (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email          citext UNIQUE,
+  -- ნომერი თავად არის ანგარიში (ADR-015). password_hash წაშლილია 0008-ში.
   phone          text UNIQUE,
-  password_hash  text,
   first_name     text,
   last_name      text,
   locale         text NOT NULL DEFAULT 'ka',
@@ -97,7 +97,11 @@ CREATE TABLE users (
   last_login_at  timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT users_identity_present CHECK (email IS NOT NULL OR phone IS NOT NULL)
+  -- 0008-მდე ეს იყო users_identity_present (email ან phone). შესვლა მხოლოდ
+  -- ნომრით ხდება, ამიტომ სწორედ ნომერია სავალდებულო. NOT VALID — 0008-ამდე
+  -- შექმნილ მწკრივებს ნომერი შეიძლება არ ჰქონდეთ და მათთვის მისი მოგონება
+  -- არაპატიოსანი იქნებოდა; ისინი ისედაც ვეღარ შედიან.
+  CONSTRAINT users_phone_present CHECK (phone IS NOT NULL) NOT VALID
 );
 
 -- ⚠ PRIMARY KEY / UNIQUE შეზღუდვაში გამოსახულება (COALESCE) PostgreSQL-ში
@@ -127,18 +131,23 @@ CREATE TABLE refresh_tokens (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE otp_codes (
+-- სპეცში ეს otp_codes იყო, user_id-თ, destination-ით და purpose-ით. რეალურად
+-- არც ერთი არ დასჭირდა: კოდი ერთ დანიშნულებას ემსახურება (შესვლა), და მისი
+-- მოთხოვნისას ჯერ არ ვიცით არსებობს თუ არა მომხმარებელი — სწორედ ეს არის
+-- მიზეზი, რის გამოც უცნობი და არსებული ნომრის პასუხი ერთნაირია (ADR-015).
+CREATE TABLE otp_challenges (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid REFERENCES users(id) ON DELETE CASCADE,
-  destination text NOT NULL,             -- phone ან email
+  phone       text NOT NULL,
+  -- HMAC(JWT_SECRET, "ნომერი:კოდი") — არასოდეს თავად კოდი
   code_hash   text NOT NULL,
-  purpose     text NOT NULL,             -- LOGIN | VERIFY | RESET
-  attempts    int  NOT NULL DEFAULT 0,
+  attempts    int NOT NULL DEFAULT 0,
   expires_at  timestamptz NOT NULL,
   consumed_at timestamptz,
+  request_ip  text,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ON otp_codes (destination, purpose) WHERE consumed_at IS NULL;
+-- ორივე კითხვას ემსახურება: ბოლო challenge ამ ნომერზე, და რამდენი გაიცა საათში.
+CREATE INDEX otp_challenges_phone_created_idx ON otp_challenges (phone, created_at DESC);
 ```
 
 ---

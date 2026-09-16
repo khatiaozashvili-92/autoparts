@@ -7,8 +7,9 @@
  * those products hidden from everyone (PRD §17, docs/09 §3).
  */
 
+import { DEV_PHONES, signInAsNewCustomer, tokenFor } from './lib/auth.mjs';
+
 const API = process.env.API_URL ? process.env.API_URL + '/api/v1' : 'http://localhost:3001/api/v1';
-const DEV_PASSWORD = 'dev-password-change-me';
 let pass = 0, fail = 0;
 
 const ok = (cond, label, extra = '') => {
@@ -31,15 +32,11 @@ async function call(path, { method = 'GET', body, token } = {}) {
   return { status: res.status, body: json, raw: text };
 }
 
-const login = async (email) =>
-  (await call('/auth/login', { method: 'POST', body: { identifier: email, password: DEV_PASSWORD } }))
-    .body?.accessToken;
-
 console.log('\n-- roles --');
-const admin = await login('admin@autoparts.dev');
-const superAdmin = await login('super@autoparts.dev');
-const customer = await login('customer@autoparts.dev');
-const partner = await login('partner@autoparts.dev');
+const admin = await tokenFor(call, DEV_PHONES.admin);
+const superAdmin = await tokenFor(call, DEV_PHONES.superAdmin);
+const customer = await tokenFor(call, DEV_PHONES.customer);
+const partner = await tokenFor(call, DEV_PHONES.partner);
 ok(!!admin && !!superAdmin, 'admin accounts sign in');
 
 let r = await call('/admin/analytics', { token: customer });
@@ -166,29 +163,32 @@ if (completed) {
 }
 
 console.log('\n-- users --');
+const victim = await signInAsNewCustomer(call, { firstName: 'Suspendable' });
+
 r = await call('/admin/users?limit=10', { token: admin });
 ok((r.body ?? []).length > 0, 'users are listed');
 ok((r.body ?? []).every((u) => Array.isArray(u.roles) || u.roles === null), 'with their roles');
 
-const victim = (r.body ?? []).find((u) => u.email?.startsWith('buy'));
-if (victim) {
-  r = await call(`/admin/users/${victim.id}/suspension`, {
-    method: 'PATCH', token: admin, body: { suspended: true },
-  });
-  ok(r.status === 200 && r.body?.suspended === true, 'a user can be suspended');
+// Searching by number, not e-mail: an account created by SMS has no e-mail
+// at all, so this is the only handle the console has on a real customer.
+r = await call(`/admin/users?search=${encodeURIComponent(victim.phone)}&limit=10`, { token: admin });
+ok((r.body ?? []).some((u) => u.id === victim.userId), 'a customer can be found by phone number',
+   r.raw.slice(0, 200));
 
-  r = await call('/auth/login', {
-    method: 'POST', body: { identifier: victim.email, password: 'correct-horse-battery' },
-  });
-  ok(r.status === 403, 'and can no longer sign in', `got ${r.status}`);
+r = await call(`/admin/users/${victim.userId}/suspension`, {
+  method: 'PATCH', token: admin, body: { suspended: true },
+});
+ok(r.status === 200 && r.body?.suspended === true, 'a user can be suspended');
 
-  await call(`/admin/users/${victim.id}/suspension`, {
-    method: 'PATCH', token: admin, body: { suspended: false },
-  });
-} else {
-  ok(true, 'no test user to suspend (skipped)');
-  ok(true, 'no test user to suspend (skipped)');
-}
+// Refused at the request step: a suspended account should not cost an SMS to
+// be told no.
+r = await call('/auth/otp/request', { method: 'POST', body: { phone: victim.phone } });
+ok(r.status === 403 && r.body?.error?.messageKey === 'error.auth.suspended',
+   'and can no longer ask for a code', `got ${r.status} ${r.raw.slice(0, 120)}`);
+
+await call(`/admin/users/${victim.userId}/suspension`, {
+  method: 'PATCH', token: admin, body: { suspended: false },
+});
 
 console.log('\n-- search reindex --');
 r = await call('/admin/search/reindex', { method: 'POST', token: superAdmin });

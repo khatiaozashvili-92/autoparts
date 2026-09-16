@@ -58,6 +58,10 @@ function browserTokenStore(): TokenStore {
 
 export interface Me {
   id: string;
+  /** The number the account signs in on, and its identity (ADR-015). */
+  phone: string | null;
+  firstName: string | null;
+  /** Optional since ADR-015: an account created by SMS may never have one. */
   email: string | null;
   roles: string[];
   partnerId: string | null;
