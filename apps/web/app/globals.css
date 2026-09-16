@@ -797,6 +797,21 @@ h1, h2, h3 { letter-spacing: -0.015em; }
 .review-form-cell .inline-form { margin-bottom: 8px; }
 
 /*
+ * Labels above their inputs, not beside them. The year boxes are narrow enough
+ * that the default inline flow puts their captions on the same line while the
+ * wider make and model captions sit above -- four fields in one row, aligned
+ * three different ways.
+ */
+.review-form-cell .inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.review-form-cell .inline-form input { width: 100%; }
+
+/*
  * Refusal is the one irreversible-looking action here, so it does not wear the
  * same colour as everything else on the row.
  */
