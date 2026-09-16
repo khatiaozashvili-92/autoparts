@@ -1,12 +1,31 @@
 # Reverse proxy for the demo deployment.
 #
 # Both services sit behind one hostname on purpose. The web app calls the API
-# from the browser, so putting them on separate origins would mean the browser
-# never sends the demo password to the API — and would drag CORS back in for
-# no benefit. One origin, one password, no preflight.
+# from the browser, so putting them on separate origins would mean the gate
+# cookie is never sent to the API, and would drag CORS back in for no benefit.
 #
 # The app's own ports stay bound to loopback and the firewall only opens 80,
-# 443 and SSH, so there is no way to reach the API around this password.
+# 443 and SSH, so there is no way to reach the API around this gate.
+
+# ---------------------------------------------------------------------------
+# Why a cookie and not HTTP Basic auth.
+#
+# Basic auth was the obvious choice and it is the wrong one here. Basic
+# credentials travel in the `Authorization` header, and so do this app's bearer
+# tokens -- a request carries one `Authorization` header or the other, never
+# both. So every *authenticated* request arrived at nginx carrying
+# `Authorization: Bearer ...`, failed the Basic check, and was answered with
+# nginx's own 401. The client reads that 401 as "my token expired", tries to
+# refresh, is refused again, clears its tokens and signs the visitor out. The
+# result: signing in appeared to work, then instantly undid itself.
+#
+# A cookie occupies a different header, so it rides along with the bearer token
+# instead of fighting it.
+# ---------------------------------------------------------------------------
+map $cookie_demo_pass $demo_ok {
+    default 0;
+    "${DEMO_PASSWORD}" 1;
+}
 
 server {
     listen 80;
@@ -16,17 +35,29 @@ server {
     # Let's Encrypt has to reach this path unauthenticated or the certificate
     # can never be issued or renewed.
     location /.well-known/acme-challenge/ {
-        auth_basic off;
         root /var/www/html;
     }
-
-    auth_basic "autoparts demo";
-    auth_basic_user_file /etc/nginx/.htpasswd;
 
     # Uploads are small; this only needs to clear a partner CSV import.
     client_max_body_size 12m;
 
+    # The gate itself is reachable without the cookie, or nobody could ever
+    # get one.
+    location = /__gate {
+        root /var/www/gate;
+        try_files /index.html =404;
+    }
+
+    location = /__unlock {
+        add_header Set-Cookie "demo_pass=$arg_key; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000" always;
+        return 302 https://$host/;
+    }
+
     location /api/ {
+        # A bare 401 rather than a redirect: this is answering fetch(), and a
+        # redirect to an HTML page would surface as a JSON parse error.
+        if ($demo_ok = 0) { return 401; }
+
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
@@ -38,14 +69,16 @@ server {
     }
 
     location / {
+        if ($demo_ok = 0) { return 302 https://$host/__gate; }
+
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        # Next.js dev-style HMR and RSC streaming both need the connection
-        # upgraded rather than buffered.
+        # Next.js streams its server-rendered payloads; buffering them delays
+        # every navigation until the whole response is in.
         proxy_set_header Upgrade           $http_upgrade;
         proxy_set_header Connection        "upgrade";
         proxy_buffering off;
