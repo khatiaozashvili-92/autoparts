@@ -83,11 +83,13 @@ export const NAV: Record<Workspace, NavItem[]> = {
   ],
   admin: [
     { href: '/admin', label: 'მიმოხილვა' },
-    { href: '/admin/partners', label: 'პარტნიორები', superAdminOnly: true },
+    { href: '/admin/partners', label: 'პარტნიორები' },
     { href: '/admin/categories', label: 'კატეგორიები' },
     { href: '/admin/inventory', label: 'მარაგები' },
     { href: '/admin/products', label: 'პროდუქციის განხილვა' },
     { href: '/admin/transactions', label: 'ტრანზაქციები' },
+    // The one thing that does not delegate: only the owner hires.
+    { href: '/admin/staff', label: 'თანამშრომლები', superAdminOnly: true },
   ],
 };
 

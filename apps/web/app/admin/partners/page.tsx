@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useSession } from '../../../lib/session';
-import { isSuperAdmin } from '../../../lib/workspace';
+import { isPlatformStaff } from '../../../lib/workspace';
 import { ErrorNote } from '../../../components/shell';
 
 /**
@@ -157,12 +157,12 @@ export default function AdminPartnersPage() {
     }
   }
 
-  if (!isSuperAdmin(me)) {
+  if (!isPlatformStaff(me)) {
     return (
       <section className="narrow">
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            პარტნიორი კომპანიების დამატება და ამორთვა მხოლოდ სუპერ-ადმინს შეუძლია.
+            ეს გვერდი მხოლოდ პლატფორმის თანამშრომლებისთვისაა.
           </p>
         </div>
       </section>

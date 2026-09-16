@@ -271,6 +271,115 @@ export class PartnerAdminService {
     return { removed: true };
   }
 
+  /* ───────────────────────── platform staff ───────────────────────── */
+
+  /**
+   * The people who run the marketplace.
+   *
+   * Distinct from partner users, who run one company on it. A platform admin
+   * can do everything the owner can — admit partner companies, approve what
+   * partners add, manage categories — with exactly one exception: they cannot
+   * create another one of themselves. Hiring is the owner's decision, and it
+   * is the only power that does not delegate.
+   */
+  async staff() {
+    return this.db.query(
+      `SELECT u.id, u.phone, u.first_name, u.last_name, ur.role::text AS role,
+              u.last_login_at, u.suspended_at, ur.granted_at
+       FROM user_roles ur
+       JOIN users u ON u.id = ur.user_id
+       WHERE ur.role IN ('PLATFORM_SUPPORT','PLATFORM_ADMIN','SUPER_ADMIN')
+       ORDER BY
+         CASE ur.role WHEN 'SUPER_ADMIN' THEN 0 WHEN 'PLATFORM_ADMIN' THEN 1 ELSE 2 END,
+         u.created_at`,
+    );
+  }
+
+  /**
+   * Gives a phone number a seat in the admin workspace.
+   *
+   * SUPER_ADMIN only. Identified by number rather than invited by e-mail,
+   * because the number is the account (ADR-015): the person simply finds the
+   * admin panel waiting the first time they ask for a code.
+   */
+  async addStaff(
+    principal: Principal,
+    input: { phone: string; firstName?: string; role?: 'PLATFORM_SUPPORT' | 'PLATFORM_ADMIN' },
+  ) {
+    const phone = normalizePhone(input.phone);
+    if (!phone || !isMobileNumber(phone)) {
+      throw new AppError({
+        code: ErrorCode.VALIDATION_FAILED,
+        status: 400,
+        message: 'A mobile number that can receive an SMS is required.',
+        messageKey: 'error.auth.phoneInvalid',
+      });
+    }
+
+    const role = input.role ?? 'PLATFORM_ADMIN';
+
+    return this.db.transaction(async (tx) => {
+      const userId = await this.ensureUser(tx, phone, input.firstName);
+
+      // Platform roles carry no partner scope, and the user_roles CHECK
+      // refuses a partner role without one — so this passes null deliberately
+      // rather than by omission.
+      await tx.query(
+        `INSERT INTO user_roles (user_id, role, partner_id, granted_by)
+         VALUES ($1, $2::user_role, NULL, $3)
+         ON CONFLICT DO NOTHING`,
+        [userId, role, principal.userId],
+      );
+
+      await this.audit.record({
+        actor: principal,
+        action: 'ROLE_ACTION',
+        entityType: 'user',
+        entityId: userId,
+        after: { role, staff: true },
+      });
+
+      return { userId, phone, role };
+    });
+  }
+
+  /** Takes the admin workspace away from one person. */
+  async removeStaff(principal: Principal, userId: string) {
+    if (userId === principal.userId) {
+      // Removing your own access would leave the marketplace with one fewer
+      // owner and no way back in if you are the last one.
+      throw new AppError({
+        code: ErrorCode.VALIDATION_FAILED,
+        status: 400,
+        message: 'You cannot remove your own access.',
+        messageKey: 'error.staff.cannotRemoveSelf',
+      });
+    }
+
+    const removed = await this.db.query<{ role: string }>(
+      `DELETE FROM user_roles
+       WHERE user_id = $1 AND role IN ('PLATFORM_SUPPORT','PLATFORM_ADMIN')
+       RETURNING role::text AS role`,
+      [userId],
+    );
+    if (removed.length === 0) {
+      // A SUPER_ADMIN is deliberately not removable here: demoting an owner is
+      // a decision that should not be one click away in a list.
+      throw errors.notFound('Staff member');
+    }
+
+    await this.audit.record({
+      actor: principal,
+      action: 'ROLE_ACTION',
+      entityType: 'user',
+      entityId: userId,
+      before: { role: removed[0]!.role },
+      after: { role: null },
+    });
+
+    return { removed: true };
+  }
+
   /**
    * Finds or creates the account behind a number.
    *

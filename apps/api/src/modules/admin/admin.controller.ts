@@ -82,6 +82,13 @@ class PartnerUserDto {
   @IsOptional() @IsIn(['PARTNER_USER', 'PARTNER_ADMIN']) role?: 'PARTNER_USER' | 'PARTNER_ADMIN';
 }
 
+class StaffDto {
+  @IsString() @MaxLength(20) phone!: string;
+  @IsOptional() @IsString() @Length(1, 80) firstName?: string;
+  @IsOptional() @IsIn(['PLATFORM_SUPPORT', 'PLATFORM_ADMIN'])
+  role?: 'PLATFORM_SUPPORT' | 'PLATFORM_ADMIN';
+}
+
 class CategoryDto {
   @IsString() @Length(2, 60) slug!: string;
   @IsString() @Length(1, 120) nameKa!: string;
@@ -181,7 +188,7 @@ export class AdminController {
    * deliberate act by a named person (docs/09 §4).
    */
   @Post('partners')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create a partner company and its first administrator' })
   createPartner(@CurrentPrincipal() p: Principal, @Body() dto: CreatePartnerDto) {
     return this.partnerAdmin.createPartner(p, dto);
@@ -189,7 +196,7 @@ export class AdminController {
 
   /** Archives, never deletes: orders and audit rows reference the company. */
   @Delete('partners/:id')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Retire a partner, taking its offers off the marketplace' })
   archivePartner(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.partnerAdmin.archivePartner(p, id);
@@ -202,7 +209,7 @@ export class AdminController {
   }
 
   @Post('partners/:id/users')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Give a phone number access to this partner portal' })
   addPartnerUser(
     @CurrentPrincipal() p: Principal,
@@ -213,7 +220,7 @@ export class AdminController {
   }
 
   @Delete('partners/:id/users/:userId')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Revoke one person without touching the company' })
   removePartnerUser(
     @CurrentPrincipal() p: Principal,
@@ -238,6 +245,37 @@ export class AdminController {
       this.transactions.summary(scope, { from, to }),
     ]);
     return { summary, data: rows };
+  }
+
+  /* ── the people who run the marketplace ── */
+
+  @Get('staff')
+  @ApiOperation({ summary: 'Platform staff and their roles' })
+  staff() {
+    return this.partnerAdmin.staff();
+  }
+
+  /**
+   * SUPER_ADMIN only, and the only power that does not delegate.
+   *
+   * A platform admin can do everything the owner can except create another
+   * one of themselves. Hiring is the owner decision.
+   */
+  @Post('staff')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Give a phone number a seat in the admin workspace' })
+  addStaff(@CurrentPrincipal() p: Principal, @Body() dto: StaffDto) {
+    return this.partnerAdmin.addStaff(p, dto);
+  }
+
+  @Delete('staff/:userId')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Revoke a staff seat' })
+  removeStaff(
+    @CurrentPrincipal() p: Principal,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.partnerAdmin.removeStaff(p, userId);
   }
 
   /* ── categories ── */

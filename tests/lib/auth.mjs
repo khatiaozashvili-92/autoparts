@@ -54,9 +54,12 @@ export async function signIn(call, phone, { firstName } = {}) {
   // few seconds of overlap between them is normal and not a failure -- waiting
   // it out is what a person would do. A long wait still fails fast, because
   // that means something is genuinely wrong rather than merely busy.
-  const retryAfter = requested.body?.error?.details?.retryAfter;
-  if (requested.status === 429 && typeof retryAfter === 'number' && retryAfter <= 15) {
-    await new Promise((resolve) => setTimeout(resolve, (retryAfter + 1) * 1000));
+  // Two different limits answer 429 here. The per-number cooldown says how
+  // long it wants; the per-IP throttle does not, so an unqualified 429 gets a
+  // flat wait. Both are the product working, not failing.
+  for (let attempt = 0; attempt < 5 && requested.status === 429; attempt++) {
+    const retryAfter = requested.body?.error?.details?.retryAfter;
+    await new Promise((resolve) => setTimeout(resolve, ((retryAfter ?? 12) + 1) * 1000));
     requested = await call('/auth/otp/request', { method: 'POST', body: { phone } });
   }
 
@@ -72,10 +75,19 @@ export async function signIn(call, phone, { firstName } = {}) {
     );
   }
 
-  const verified = await call('/auth/otp/verify', {
-    method: 'POST',
-    body: { challengeId, code: devCode, ...(firstName ? { firstName } : {}) },
-  });
+  const verifyBody = { challengeId, code: devCode, ...(firstName ? { firstName } : {}) };
+  let verified = await call('/auth/otp/verify', { method: 'POST', body: verifyBody });
+
+  // A second, different 429 lives here: the per-IP throttle, which unlike the
+  // per-number cooldown does not say how long to wait. Two suites running back
+  // to back from one machine reach it easily, and giving up would fail a suite
+  // over the harness rather than the product. The code stays valid for five
+  // minutes, so waiting and retrying is safe.
+  for (let attempt = 0; attempt < 5 && verified.status === 429; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 12_000));
+    verified = await call('/auth/otp/verify', { method: 'POST', body: verifyBody });
+  }
+
   if (verified.status !== 200) {
     throw new Error(`OTP verify for ${phone} failed: ${verified.status} ${verified.raw}`);
   }
