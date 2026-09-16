@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppError, ErrorCode, errors, type Principal } from '@autoparts/core';
 import { DatabaseService, type TransactionClient } from '../../database/database.module.js';
 import { AuditService } from './audit.service.js';
+import { SearchService } from '../search/search.service.js';
 
 /**
  * The catalogue's shape, and what a partner is allowed to add to it
@@ -24,11 +25,38 @@ export interface CategoryInput {
   sortOrder?: number;
 }
 
+/**
+ * One shape for both review lists.
+ *
+ * Pending and refused rows are read by the same panel and differ only in which
+ * decision column is set, so they are selected identically. Two hand-kept
+ * copies would drift the first time a column was added to one of them.
+ */
+const REVIEW_QUEUE_SELECT = `
+  SELECT p.id, p.name, p.created_at, p.specifications,
+         p.approved_at, p.rejected_at, p.review_note,
+         b.name AS brand, pa.display_name AS partner,
+         c.slug AS category_slug, mp.normalized_name AS master_part,
+         (SELECT count(*) FROM fitments f WHERE f.product_id = p.id AND f.active) AS fitments,
+         (SELECT count(*) FROM offers o WHERE o.product_id = p.id) AS offers,
+         (SELECT array_agg(pi.kind::text || ':' || pi.value)
+            FROM product_identifiers pi WHERE pi.product_id = p.id) AS identifiers,
+         (SELECT coalesce(json_agg(json_build_object(
+                   'id', f.id, 'make', f.make, 'model', f.model,
+                   'yearFrom', f.year_from, 'yearTo', f.year_to) ORDER BY f.make), '[]'::json)
+            FROM fitments f WHERE f.product_id = p.id AND f.active) AS fitment_list
+  FROM products p
+  JOIN brands b ON b.id = p.brand_id
+  JOIN master_parts mp ON mp.id = p.master_part_id
+  JOIN categories c ON c.id = mp.category_id
+  LEFT JOIN partners pa ON pa.id = p.created_by_partner_id`;
+
 @Injectable()
 export class CatalogueAdminService {
   constructor(
     private readonly db: DatabaseService,
     private readonly audit: AuditService,
+    private readonly search: SearchService,
   ) {}
 
   /* ───────────────────────── categories ───────────────────────── */
@@ -185,7 +213,9 @@ export class CatalogueAdminService {
          count(*) FILTER (WHERE o.stock_quantity = 0)::text AS out_of_stock,
          count(*) FILTER (WHERE o.is_stale)::text AS stale,
          count(DISTINCT o.partner_id)::text AS partners,
-         count(*) FILTER (WHERE p.approved_at IS NULL)::text AS pending_products
+         count(*) FILTER (WHERE p.approved_at IS NULL AND p.rejected_at IS NULL)::text
+           AS pending_products,
+         count(*) FILTER (WHERE p.rejected_at IS NOT NULL)::text AS rejected_products
        FROM offers o
        JOIN products p ON p.id = o.product_id
        JOIN partners pa ON pa.id = o.partner_id
@@ -205,20 +235,164 @@ export class CatalogueAdminService {
    */
   async pendingProducts() {
     return this.db.query(
-      `SELECT p.id, p.name, p.created_at, p.specifications,
-              b.name AS brand, pa.display_name AS partner,
-              c.slug AS category_slug, mp.normalized_name AS master_part,
-              (SELECT count(*) FROM fitments f WHERE f.product_id = p.id) AS fitments,
-              (SELECT count(*) FROM offers o WHERE o.product_id = p.id) AS offers,
-              (SELECT array_agg(pi.kind::text || ':' || pi.value)
-                 FROM product_identifiers pi WHERE pi.product_id = p.id) AS identifiers
-       FROM products p
-       JOIN brands b ON b.id = p.brand_id
-       JOIN master_parts mp ON mp.id = p.master_part_id
-       JOIN categories c ON c.id = mp.category_id
-       LEFT JOIN partners pa ON pa.id = p.created_by_partner_id
-       WHERE p.approved_at IS NULL
+      `${REVIEW_QUEUE_SELECT}
+       WHERE p.approved_at IS NULL AND p.rejected_at IS NULL
        ORDER BY p.created_at`,
+    );
+  }
+
+  /**
+   * Products somebody refused.
+   *
+   * Kept readable rather than swept away, for two reasons. A rejection made in
+   * error is otherwise only undoable by asking the partner to upload the same
+   * file again, and a reviewer who cannot see what was refused has no way to
+   * tell a queue that was worked through from one that was emptied.
+   */
+  async rejectedProducts(limit = 50) {
+    return this.db.query(
+      `${REVIEW_QUEUE_SELECT}
+       WHERE p.rejected_at IS NOT NULL
+       ORDER BY p.rejected_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+  }
+
+  /**
+   * Declares what a vehicle a product fits, so it can be approved.
+   *
+   * Approval requires fitment data and nothing a partner uploads has any, so
+   * without this the queue has exactly one exit: refusal. That is not a review
+   * process, it is a wall. The record is written as ADMIN_MANUAL at full
+   * confidence, which is the truth — a person looked at the part and said what
+   * it goes on, and that outranks anything a partner declared (docs/05 §3.1).
+   *
+   * A null model means every model of that make, and a null year bound means
+   * open-ended, because that is how the engine reads them: only a stated
+   * criterion can disqualify a car.
+   */
+  async addFitment(
+    principal: Principal,
+    productId: string,
+    input: { make: string; model?: string; yearFrom?: number; yearTo?: number },
+  ) {
+    const [product] = await this.db.query<{ id: string }>(
+      'SELECT id FROM products WHERE id = $1',
+      [productId],
+    );
+    if (!product) throw errors.notFound('Product');
+
+    const make = input.make.trim();
+    if (!make) {
+      throw new AppError({
+        code: ErrorCode.VALIDATION_FAILED,
+        status: 422,
+        message: 'A fitment needs at least a make.',
+        messageKey: 'error.fitment.makeRequired',
+      });
+    }
+    if (input.yearFrom != null && input.yearTo != null && input.yearFrom > input.yearTo) {
+      // Caught here rather than left to the table's CHECK, so the reviewer is
+      // told which two fields to swap instead of shown a constraint name.
+      throw new AppError({
+        code: ErrorCode.VALIDATION_FAILED,
+        status: 422,
+        message: 'The first year cannot be later than the last.',
+        messageKey: 'error.fitment.yearRange',
+      });
+    }
+
+    const [fitment] = await this.db.query<{ id: string }>(
+      `INSERT INTO fitments
+         (product_id, source, make, model, year_from, year_to,
+          verdict, confidence, active, created_by)
+       VALUES ($1, 'ADMIN_MANUAL'::fitment_source, $2, $3, $4, $5,
+               'EXACT'::fitment_verdict, 1.0, true, $6)
+       RETURNING id`,
+      [
+        productId,
+        make,
+        input.model?.trim() || null,
+        input.yearFrom ?? null,
+        input.yearTo ?? null,
+        principal.userId,
+      ],
+    );
+    if (!fitment) throw errors.internal();
+
+    await this.audit.record({
+      actor: principal,
+      action: 'FITMENT_CHANGE',
+      entityType: 'fitment',
+      entityId: fitment.id,
+      before: null,
+      after: { productId, ...input },
+    });
+
+    const [counted] = await this.db.query<{ fitments: string }>(
+      'SELECT count(*)::text AS fitments FROM fitments WHERE product_id = $1 AND active',
+      [productId],
+    );
+    return { id: fitment.id, productId, fitments: Number(counted?.fitments ?? 0) };
+  }
+
+  /**
+   * Retires a fitment record.
+   *
+   * Deactivated, not deleted: a verdict a customer was once shown has to stay
+   * explicable afterwards.
+   */
+  async removeFitment(principal: Principal, productId: string, fitmentId: string) {
+    const [row] = await this.db.query<{ id: string }>(
+      `UPDATE fitments SET active = false, updated_at = now()
+       WHERE id = $1 AND product_id = $2 AND active
+       RETURNING id`,
+      [fitmentId, productId],
+    );
+    if (!row) throw errors.notFound('Fitment');
+
+    await this.audit.record({
+      actor: principal,
+      action: 'FITMENT_CHANGE',
+      entityType: 'fitment',
+      entityId: fitmentId,
+      before: { active: true },
+      after: { active: false },
+    });
+    return { id: fitmentId, active: false };
+  }
+
+  /** The fitments on one product, for the review panel. */
+  async productFitments(productId: string) {
+    return this.db.query(
+      `SELECT id, make, model, year_from, year_to, source::text AS source,
+              verdict::text AS verdict
+       FROM fitments WHERE product_id = $1 AND active
+       ORDER BY make, model NULLS FIRST`,
+      [productId],
+    );
+  }
+
+  /**
+   * Makes and models the platform has actually seen.
+   *
+   * Typed free-hand, "Toyota" and "TOYOTA" are the same car but "Toyta" is no
+   * car at all, and a fitment nobody's vehicle matches is indistinguishable
+   * from no fitment at all. So the reviewer picks from what has been decoded
+   * or already declared, and only types when the list is genuinely missing it.
+   */
+  async vehicleOptions() {
+    return this.db.query(
+      `SELECT make, array_agg(DISTINCT model ORDER BY model) AS models
+       FROM (
+         SELECT make, model FROM vehicle_configurations
+         UNION
+         SELECT make, model FROM fitments WHERE active AND model IS NOT NULL
+       ) AS seen
+       WHERE make IS NOT NULL AND model IS NOT NULL
+       GROUP BY make
+       ORDER BY make`,
     );
   }
 
@@ -232,16 +406,18 @@ export class CatalogueAdminService {
   async reviewProduct(
     principal: Principal,
     productId: string,
-    decision: 'APPROVE' | 'REJECT',
+    decision: 'APPROVE' | 'REJECT' | 'RESTORE',
     note?: string,
   ) {
     const [product] = await this.db.query<{
       id: string;
       approved_at: Date | null;
+      rejected_at: Date | null;
       fitments: string;
     }>(
-      `SELECT p.id, p.approved_at,
-              (SELECT count(*) FROM fitments f WHERE f.product_id = p.id)::text AS fitments
+      `SELECT p.id, p.approved_at, p.rejected_at,
+              (SELECT count(*) FROM fitments f
+                WHERE f.product_id = p.id AND f.active)::text AS fitments
        FROM products p WHERE p.id = $1`,
       [productId],
     );
@@ -251,23 +427,49 @@ export class CatalogueAdminService {
       // Refused rather than allowed with a warning. An approved product with
       // no fitment is invisible to every customer anyway, so letting it
       // through would only teach the reviewer that approval does nothing.
+      // The way out is to declare a fitment first, which the same panel does.
       throw new AppError({
         code: ErrorCode.VALIDATION_FAILED,
         status: 422,
-        message: 'This product has no fitment data, so no customer could ever be shown it.',
+        message:
+          'This product has no fitment data, so no customer could ever be shown it. ' +
+          'Say which vehicle it fits first.',
         messageKey: 'error.product.noFitment',
       });
     }
 
-    await this.db.query(
+    // Each branch writes both decision columns, never one. Setting approval
+    // while leaving an old rejection standing would violate the table's
+    // one-decision check, and -- worse -- leave the row's meaning up to
+    // whichever column the reading query happened to look at.
+    //
+    // Restoring clears the note as well as the decision: the reason belonged
+    // to a refusal that no longer stands, and leaving it behind would show the
+    // partner a rejection message for a product that is back in the queue.
+    const statement =
       decision === 'APPROVE'
         ? `UPDATE products
-             SET approved_at = now(), approved_by = $2, active = true, updated_at = now()
+             SET approved_at = now(), approved_by = $2,
+                 rejected_at = NULL, rejected_by = NULL,
+                 review_note = $3, active = true, updated_at = now()
            WHERE id = $1`
-        : `UPDATE products
-             SET approved_at = NULL, approved_by = $2, active = false, updated_at = now()
-           WHERE id = $1`,
-      [productId, principal.userId],
+        : decision === 'REJECT'
+          ? `UPDATE products
+               SET rejected_at = now(), rejected_by = $2,
+                   approved_at = NULL, approved_by = NULL,
+                   review_note = $3, active = false, updated_at = now()
+             WHERE id = $1`
+          : `UPDATE products
+               SET rejected_at = NULL, rejected_by = NULL,
+                   approved_at = NULL, approved_by = NULL,
+                   review_note = NULL, active = false, updated_at = now()
+             WHERE id = $1`;
+
+    await this.db.query(
+      statement,
+      decision === 'RESTORE'
+        ? [productId]
+        : [productId, principal.userId, note ?? null],
     );
 
     await this.audit.record({
@@ -275,11 +477,29 @@ export class CatalogueAdminService {
       action: 'CATALOG_ACTION',
       entityType: 'product',
       entityId: productId,
-      before: { approved: product.approved_at !== null },
-      after: { approved: decision === 'APPROVE', note: note ?? null },
+      before: { approved: product.approved_at !== null, rejected: product.rejected_at !== null },
+      after: { decision, note: note ?? null },
     });
 
-    return { id: productId, approved: decision === 'APPROVE' };
+    // Search reads `search_documents`, which is derived and does not update
+    // itself. Approving a product the partner filed under a part type nobody
+    // had listed before creates a row no document covers, so without this the
+    // reviewer approves a part and the customer searching for it is still told
+    // nothing was found -- which looks exactly like approval having done
+    // nothing. Failure here is logged, not raised: the decision is already
+    // committed and undoing it over a stale index would be worse.
+    if (decision === 'APPROVE') {
+      await this.search
+        .reindex()
+        .catch(() => undefined);
+    }
+
+    return {
+      id: productId,
+      decision,
+      approved: decision === 'APPROVE',
+      rejected: decision === 'REJECT',
+    };
   }
 
   private async writeTranslations(

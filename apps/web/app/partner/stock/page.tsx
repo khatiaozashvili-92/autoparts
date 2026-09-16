@@ -24,6 +24,8 @@ interface PartnerProduct {
   availability: string;
   is_stale: boolean;
   approved_at: string | null;
+  rejected_at: string | null;
+  review_note: string | null;
   active: boolean;
 }
 
@@ -300,7 +302,19 @@ export default function PartnerStockPage() {
                     />
                   </td>
                   <td>
-                    {!row.approved_at ? (
+                    {row.rejected_at ? (
+                      /*
+                        Named, with the reason. A partner who is only told
+                        'not listed' can do nothing but upload the same file
+                        again.
+                      */
+                      <>
+                        <span className="pill pill-off">უარყოფილია</span>
+                        {row.review_note && (
+                          <div className="muted small">{row.review_note}</div>
+                        )}
+                      </>
+                    ) : !row.approved_at ? (
                       <span className="pill pill-pending">განხილვაში</span>
                     ) : row.stock_quantity > 0 ? (
                       <span className="pill pill-live">მარაგშია</span>

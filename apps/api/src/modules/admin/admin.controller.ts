@@ -21,7 +21,9 @@ import {
   IsString,
   IsUUID,
   Length,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { Permission, UserRole, type Principal } from '@autoparts/core';
 import { CurrentPrincipal, RequirePermissions, Roles } from '../../common/common.js';
@@ -110,8 +112,20 @@ class CategoryUpdateDto {
 }
 
 class ProductReviewDto {
-  @IsIn(['APPROVE', 'REJECT']) decision!: 'APPROVE' | 'REJECT';
-  @IsOptional() @IsString() note?: string;
+  // RESTORE puts a refused product back in the queue. Rejection is a real,
+  // recorded decision now, so it needs an undo that is not "ask the partner to
+  // upload the file again".
+  @IsIn(['APPROVE', 'REJECT', 'RESTORE']) decision!: 'APPROVE' | 'REJECT' | 'RESTORE';
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+class ProductFitmentDto {
+  @IsString() @Length(1, 80) make!: string;
+  @IsOptional() @IsString() @MaxLength(80) model?: string;
+  // 1950 is the table's own floor; a wider range would only be rejected by the
+  // database with a message the reviewer cannot act on.
+  @IsOptional() @IsInt() @Min(1950) @Max(2100) yearFrom?: number;
+  @IsOptional() @IsInt() @Min(1950) @Max(2100) yearTo?: number;
 }
 
 class DisputeDto {
@@ -336,15 +350,57 @@ export class AdminController {
     return this.catalogue.pendingProducts();
   }
 
+  @Get('products/rejected')
+  @ApiOperation({ summary: 'Products a reviewer refused, most recent first' })
+  rejectedProducts() {
+    return this.catalogue.rejectedProducts();
+  }
+
   @Post('products/:id/review')
   @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Clear a partner product for sale, or refuse it' })
+  @ApiOperation({ summary: 'Clear a partner product for sale, refuse it, or requeue it' })
   reviewProduct(
     @CurrentPrincipal() p: Principal,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ProductReviewDto,
   ) {
     return this.catalogue.reviewProduct(p, id, dto.decision, dto.note);
+  }
+
+  /* ── fitment, declared while reviewing ── */
+
+  @Get('products/:id/fitments')
+  @ApiOperation({ summary: 'What this product is currently declared to fit' })
+  productFitments(@Param('id', ParseUUIDPipe) id: string) {
+    return this.catalogue.productFitments(id);
+  }
+
+  @Post('products/:id/fitments')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Declare a vehicle this product fits, so it can be approved' })
+  addFitment(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ProductFitmentDto,
+  ) {
+    return this.catalogue.addFitment(p, id, dto);
+  }
+
+  @Delete('products/:id/fitments/:fitmentId')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Retire a fitment declaration' })
+  removeFitment(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fitmentId', ParseUUIDPipe) fitmentId: string,
+  ) {
+    return this.catalogue.removeFitment(p, id, fitmentId);
+  }
+
+  @Get('fitment/vehicle-options')
+  @ApiOperation({ summary: 'Makes and models the platform has actually seen' })
+  vehicleOptions() {
+    return this.catalogue.vehicleOptions();
   }
 
   /* ── pricing ── */

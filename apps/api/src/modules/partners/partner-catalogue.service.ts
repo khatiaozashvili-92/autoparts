@@ -167,7 +167,8 @@ export class PartnerCatalogueService {
     if (!partnerId) throw errors.notFound('Partner');
 
     return this.db.query(
-      `SELECT p.id, p.name, p.active, p.approved_at, p.created_by_partner_id IS NOT NULL AS mine,
+      `SELECT p.id, p.name, p.active, p.approved_at, p.rejected_at, p.review_note,
+              p.created_by_partner_id IS NOT NULL AS mine,
               b.name AS brand, c.slug AS category_slug, mp.normalized_name AS master_part,
               o.id AS offer_id, o.base_price_minor, o.stock_quantity,
               o.availability_status::text AS availability, o.currency,

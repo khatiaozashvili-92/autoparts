@@ -771,3 +771,34 @@ h1, h2, h3 { letter-spacing: -0.015em; }
 .reject-button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--heading) 8%, transparent);
 }
+
+/* ─────────────────── the product review panel ─────────────────── */
+
+/*
+ * Declared fitments, stacked. Each is a whole claim -- "Toyota Corolla
+ * 2005-2012" -- so they do not sit on one line: a reviewer scanning for what a
+ * part already covers reads a column far faster than a wrapped sentence.
+ */
+.fitment-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fitment-list li { display: flex; align-items: center; gap: 6px; }
+
+/* The row that opens under a product, for saying what it fits. */
+.review-form-cell {
+  background: var(--bg-tint);
+  border-top: 1px solid var(--border);
+}
+.review-form-cell .inline-form { margin-bottom: 8px; }
+
+/*
+ * Refusal is the one irreversible-looking action here, so it does not wear the
+ * same colour as everything else on the row.
+ */
+.link-button.danger { color: var(--heading); }
+.link-button:disabled { color: var(--idle); cursor: default; }
