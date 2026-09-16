@@ -154,6 +154,39 @@ in your local `.env`; the shipped default of 5 is the product's.
 | `e2e-purchase` | offers, cart, reservation, payment, pickup, refund |
 | `e2e-admin` | conflicts, partners, markup, analytics, audit |
 
+## Demo deployment
+
+A single Ubuntu droplet runs the whole thing: nginx in front, both Node
+processes on loopback, PostgreSQL local. `infra/deploy/` holds everything it
+takes.
+
+```bash
+scp infra/deploy/provision.sh root@<host>:/root/     # Node, PG 16, nginx, swap
+ssh root@<host> bash /root/provision.sh
+git archive --format=tar HEAD | gzip | ssh root@<host> 'tar -xz -C /srv/autoparts'
+ssh root@<host> 'cd /srv/autoparts && pnpm install && pnpm build && pnpm db:migrate && pnpm db:seed'
+ssh root@<host> 'cd /srv/autoparts && pm2 start infra/deploy/ecosystem.config.cjs'
+certbot --nginx -d <host>                            # after nginx.conf.template is in place
+```
+
+Three things about it are deliberate and easy to get wrong:
+
+**One origin.** nginx serves the web app at `/` and proxies `/api/` to the API,
+so both live under one hostname. Separate origins would mean the browser never
+sends the demo password to the API, and would bring CORS back for nothing.
+
+**`NEXT_PUBLIC_API_URL` must be right at build time, not run time.** Next
+inlines it into the browser bundle, so changing it needs a rebuild. Set it to
+the public origin or the deployed page will send its requests to whatever is
+listening on the visitor's own machine.
+
+**`NODE_ENV=staging`, not `production`.** There is no SMS gateway behind the
+demo, so it runs on the console stub with the code echoed back — and
+`loadConfig` refuses both under `production`, on purpose. What keeps that from
+being an open door is the nginx password in front of the whole site, plus a
+firewall that leaves only 80, 443 and SSH reachable while both services stay
+bound to loopback.
+
 ## Layout
 
 ```
