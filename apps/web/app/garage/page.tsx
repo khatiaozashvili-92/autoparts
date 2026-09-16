@@ -118,6 +118,22 @@ function Garage() {
         {decoded && (
           <div className="result">
             <h3 style={{ marginTop: 0 }}>ვიპოვეთ თქვენი ავტომობილი</h3>
+
+            {/*
+              Said before the spec table, not after it.
+
+              Decoding a VIN shows the car, and that looks like the job is
+              done — but nothing is saved until the button at the bottom is
+              pressed, and that button sits below a dozen rows of detail and a
+              clarifying question. People were reading the car back, believing
+              they had chosen it, going to search, and being told to add a
+              vehicle first. The product looked broken when it was only
+              waiting.
+            */}
+            <p className="pending-add-note">
+              ეს ჯერ <strong>არ არის დამატებული</strong> — გადაახვიეთ ქვემოთ და
+              დააჭირეთ „სწორია, დამატება“.
+            </p>
             <dl>
               {Object.entries(FIELD_LABELS).map(([key, label]) => {
                 const value = decoded.configuration[key];

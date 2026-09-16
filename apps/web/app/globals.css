@@ -1,29 +1,56 @@
+/*
+ * Blue page, red headings.
+ *
+ * Every colour in the app comes from these tokens and nowhere else, so the
+ * palette can be retuned by editing this block alone — no hunting through
+ * components. The two that matter are `--bg` (the blue everything sits on)
+ * and `--heading` (the red).
+ *
+ * The blue is kept pale and slightly desaturated rather than a literal sky
+ * blue: text has to stay comfortably readable on it for a long session, and a
+ * saturated background fights every red heading placed on top of it. The red
+ * is likewise pulled back from pure #f00, which vibrates against blue.
+ */
 :root {
-  --bg: #fbfaf8;
+  /* the two you will want to tune first */
+  --bg: #dfeaf7;
+  --heading: #c0392b;
+
+  --bg-tint: #cfe0f4;
   --surface: #ffffff;
-  --surface-2: #f4f2ee;
-  --border: #e3ded6;
-  --text: #1c1a17;
-  --muted: #6b655c;
-  --accent: #b8510f;
+  --surface-2: #eef4fc;
+  --border: #bfd4ea;
+  --text: #16202c;
+  --muted: #5a6b7d;
+  --accent: #1f6fb2;
+  --accent-strong: #17568b;
   --ok: #2f7d4f;
   --pending: #a8852c;
-  --idle: #9a938a;
+  --idle: #8fa3b6;
   --radius: 10px;
+  --shadow: 0 1px 2px rgba(22, 40, 66, 0.06), 0 6px 18px rgba(22, 40, 66, 0.07);
 }
 
+/*
+ * Dark mode stays in the same family rather than reverting to a neutral grey,
+ * so somebody whose system is dark still recognises the product. The red is
+ * lightened, because #c0392b on a dark ground fails contrast.
+ */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #171614;
-    --surface: #201e1b;
-    --surface-2: #2a2724;
-    --border: #38342f;
-    --text: #efece7;
-    --muted: #a09991;
-    --accent: #e8813c;
-    --ok: #63b083;
-    --pending: #d0a94a;
-    --idle: #6d665e;
+    --bg: #101b28;
+    --heading: #ff7a6b;
+
+    --bg-tint: #0c1520;
+    --surface: #17242f;
+    --surface-2: #1e2d3a;
+    --border: #2a3d4d;
+    --text: #e8eef5;
+    --muted: #9bb0c4;
+    --accent: #5aa9e6;
+    --accent-strong: #8cc6f2;
+    --idle: #5e7183;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.35);
   }
 }
 
@@ -634,3 +661,113 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12px; }
 }
 
 .inline-form label { flex: 1 1 160px; }
+
+/* ─────────────────── blue page, red headings ─────────────────── */
+
+/*
+ * The blue covers the whole viewport, including the area below short pages.
+ * A gradient rather than a flat fill: a large single tone reads as a screen
+ * that failed to load its background image, and a slight vertical shift makes
+ * the cards sitting on it look deliberate.
+ */
+html {
+  background:
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-tint) 100%) no-repeat;
+  background-attachment: fixed;
+  min-height: 100%;
+}
+
+body { background: transparent; }
+
+/*
+ * Headings are the red. They carry the page's structure, so this is where a
+ * strong colour does work rather than merely decorating.
+ */
+h1, h2, h3, .page-title, .eyebrow {
+  color: var(--heading);
+}
+
+h1, h2, h3 { letter-spacing: -0.015em; }
+
+/* Field labels too: these are the things you choose between. */
+.form label > span:first-child,
+.data-table th {
+  color: var(--heading);
+  font-weight: 600;
+}
+
+/* Cards lift off the blue instead of blending into it. */
+.card,
+.table-scroll,
+.stat-card,
+.result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.topbar {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-badge { background: var(--heading); }
+
+.nav-link-active { color: var(--heading); }
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.button.primary:hover:not(:disabled) { background: var(--accent-strong); }
+
+.vehicle-bar {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/*
+ * "This is not saved yet."
+ *
+ * Decoding a VIN shows the car, which looks like the job is done -- but the
+ * button that actually saves it is below the spec table and the clarifying
+ * question. People read the car back, believed they had chosen it, went to
+ * search and were told to add a vehicle first. Red, because it is the one
+ * thing on that screen that must not be missed.
+ */
+.pending-add-note {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--heading) 35%, transparent);
+  background: color-mix(in srgb, var(--heading) 8%, transparent);
+  color: var(--heading);
+  font-size: 14px;
+}
+
+/* Keeps the confirm button reachable without scrolling back down. */
+.result .cta-row {
+  position: sticky;
+  bottom: 0;
+  padding: 14px 0 4px;
+  background: linear-gradient(180deg, transparent, var(--surface) 30%);
+}
+
+/*
+ * Declining an order is a legitimate action, not a destructive one -- the
+ * alternative is a customer waiting for something that is not coming. Styled
+ * as a real choice rather than a red danger button, so a partner is not made
+ * to feel they are doing something wrong by telling the truth.
+ */
+.reject-button {
+  margin-top: 8px;
+  border-color: color-mix(in srgb, var(--heading) 40%, var(--border));
+  color: var(--heading);
+}
+.reject-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--heading) 8%, transparent);
+}

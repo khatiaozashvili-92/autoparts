@@ -85,7 +85,8 @@ export default function AdminPage() {
       <section className="hero-block">
         <h1>ადმინისტრატორის პანელი</h1>
         <p className="muted small">
-          სატესტოდ შედით <code>admin@autoparts.dev</code> / <code>dev-password-change-me</code>
+          სატესტოდ შედით ნომრით <code>555 00 00 04</code> — პაროლი აღარ არსებობს,
+          კოდი ეკრანზე გამოჩნდება.
         </p>
       </section>
     );

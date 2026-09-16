@@ -35,6 +35,10 @@ import { PartnersService } from './partners.service.js';
 import { PartnerInventoryService } from './partner-inventory.service.js';
 import { PartnerCatalogueService } from './partner-catalogue.service.js';
 import { PartnerActiveGuard } from './partner-active.guard.js';
+import {
+  PartnerRejectionService,
+  type RejectionReason,
+} from '../orders/partner-rejection.service.js';
 import { PickupService } from '../orders/pickup.service.js';
 
 class UpdateOfferDto {
@@ -85,6 +89,11 @@ class CreateProductDto {
   @IsOptional() @IsUUID() locationId?: string;
 }
 
+class RejectOrderDto {
+  @IsIn(['OUT_OF_STOCK', 'DAMAGED', 'WRONG_PART', 'OTHER']) reason!: RejectionReason;
+  @IsOptional() @IsString() @Length(1, 300) note?: string;
+}
+
 class SalesReportQuery {
   @IsOptional() @IsString() from?: string;
   @IsOptional() @IsString() to?: string;
@@ -104,6 +113,7 @@ export class PartnersController {
   constructor(
     private readonly partners: PartnersService,
     private readonly catalogue: PartnerCatalogueService,
+    private readonly rejection: PartnerRejectionService,
     private readonly inventory: PartnerInventoryService,
     private readonly pickup: PickupService,
   ) {}
@@ -199,6 +209,23 @@ export class PartnersController {
   @ApiOperation({ summary: 'Mark ready for pickup, starting the 24-hour clock' })
   markReady(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.pickup.markReady(this.partners.scopeOf(p), id);
+  }
+
+  /**
+   * The honest answer when the shelf turns out to be empty.
+   *
+   * The customer has already paid, so this refunds them without anyone having
+   * to ask, corrects the stock figure that was wrong, and costs the partner
+   * reliability — which is what makes accurate stock worth keeping.
+   */
+  @Post('orders/:id/reject')
+  @ApiOperation({ summary: 'Decline an order this partner cannot fulfil' })
+  rejectOrder(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectOrderDto,
+  ) {
+    return this.rejection.reject(this.partners.scopeOf(p), id, dto);
   }
 
   @Post('orders/:id/verify-pickup')

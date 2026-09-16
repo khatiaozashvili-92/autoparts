@@ -64,6 +64,7 @@ export default function PartnerDashboard() {
   const [onboarding, setOnboarding] = useState<{ live: boolean; steps: OnboardingStep[] } | null>(null);
   const [orders, setOrders] = useState<PartnerOrder[]>([]);
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -99,7 +100,8 @@ export default function PartnerDashboard() {
         <h1>პარტნიორის პანელი</h1>
         <p className="lede">ეს გვერდი მხოლოდ პარტნიორი კომპანიებისთვისაა.</p>
         <p className="muted small">
-          სატესტოდ შედით <code>partner@autoparts.dev</code> / <code>dev-password-change-me</code>
+          სატესტოდ შედით ნომრით <code>555 00 00 02</code> — პაროლი აღარ არსებობს,
+          კოდი ეკრანზე გამოჩნდება.
         </p>
       </section>
     );
@@ -211,17 +213,78 @@ export default function PartnerDashboard() {
               </p>
 
               {['CONFIRMED', 'PAID', 'PREPARING'].includes(order.status) && (
-                <button
-                  className="button primary full"
-                  disabled={busy}
-                  onClick={() =>
-                    act(() =>
-                      api.request(`/partner/orders/${order.id}/ready`, { method: 'POST' }),
-                    )
-                  }
-                >
-                  მზადაა ასაღებად
-                </button>
+                <>
+                  <button
+                    className="button primary full"
+                    disabled={busy}
+                    onClick={() =>
+                      act(() =>
+                        api.request(`/partner/orders/${order.id}/ready`, { method: 'POST' }),
+                      )
+                    }
+                  >
+                    მზადაა ასაღებად
+                  </button>
+
+                  {/*
+                    The other honest answer. A stock figure is a claim about a
+                    warehouse nobody re-counted this morning, so "it is not
+                    actually here" has to be sayable — otherwise the only ways
+                    out are letting the deadline lapse or phoning the customer,
+                    and both leave someone waiting for a part that was never
+                    coming.
+                  */}
+                  <button
+                    className="button full reject-button"
+                    disabled={busy}
+                    onClick={() => setRejecting(rejecting === order.id ? null : order.id)}
+                  >
+                    ვერ შევასრულებ
+                  </button>
+                </>
+              )}
+
+              {rejecting === order.id && (
+                <div className="clarify">
+                  <p className="muted small" style={{ marginTop: 0 }}>
+                    მომხმარებელს თანხა მაშინვე დაუბრუნდება. მიზეზი გვჭირდება, რომ მარაგი
+                    გავასწოროთ — არა იმისთვის, რომ დაგადანაშაულოთ.
+                  </p>
+                  {(
+                    [
+                      ['OUT_OF_STOCK', 'მარაგში არ აღმოჩნდა', 'მარაგი შესწორდება'],
+                      ['DAMAGED', 'დაზიანებულია', 'მარაგი შესწორდება'],
+                      ['WRONG_PART', 'კატალოგში არასწორადაა', 'ადმინი გადახედავს'],
+                      ['OTHER', 'სხვა მიზეზი', ''],
+                    ] as const
+                  ).map(([reason, label, effect]) => (
+                    <button
+                      key={reason}
+                      className="button full"
+                      disabled={busy}
+                      style={{ marginTop: 6, textAlign: 'left' }}
+                      onClick={() =>
+                        act(async () => {
+                          await api.request(`/partner/orders/${order.id}/reject`, {
+                            method: 'POST',
+                            body: { reason },
+                          });
+                          setRejecting(null);
+                        })
+                      }
+                    >
+                      {label}
+                      {effect && <span className="muted small"> · {effect}</span>}
+                    </button>
+                  ))}
+                  <button
+                    className="link-button"
+                    style={{ marginTop: 8 }}
+                    onClick={() => setRejecting(null)}
+                  >
+                    გაუქმება
+                  </button>
+                </div>
               )}
 
               {order.status === 'READY_FOR_PICKUP' && (
