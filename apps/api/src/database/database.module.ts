@@ -6,6 +6,17 @@ import type { AppConfig } from '../config/configuration.js';
 export const PG_POOL = Symbol('PG_POOL');
 
 /**
+ * The one connection a transaction runs on.
+ *
+ * Deliberately only `query`: a caller that could reach the pool from inside a
+ * transaction would be able to issue a statement outside it by accident, which
+ * is the bug this type exists to make unrepresentable.
+ */
+export interface TransactionClient {
+  query<T extends QueryResultRow>(sql: string, params?: readonly unknown[]): Promise<T[]>;
+}
+
+/**
  * Database access.
  *
  * The pool is optional on purpose: until DATABASE_URL is set the API still
@@ -34,6 +45,39 @@ export class DatabaseService implements OnModuleDestroy {
   ): Promise<T[]> {
     const result = await this.raw.query<T>(sql, params as unknown[]);
     return result.rows;
+  }
+
+  /**
+   * Runs `fn` inside one transaction on one connection.
+   *
+   * `query` above takes a fresh connection from the pool each call, so a
+   * sequence of them is a sequence of independent transactions — fine for
+   * reads, wrong for anything that must not half-happen. Creating a partner
+   * company is the clearest case: the company, the account and the role grant
+   * are one fact, and a company nobody can sign in to is worse than no company
+   * at all.
+   *
+   * The callers that predate this (orders, reservations) drive the client
+   * directly; they are doing the same thing by hand.
+   */
+  async transaction<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    const client = await this.raw.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await fn({
+        query: async <R extends QueryResultRow>(sql: string, params: readonly unknown[] = []) =>
+          (await client.query<R>(sql, params as unknown[])).rows,
+      });
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      // Always, including after a failed rollback: a leaked connection takes
+      // the pool down one slot at a time until nothing can reach the database.
+      client.release();
+    }
   }
 
   /** Round-trips a trivial statement so the probe reflects the real connection. */

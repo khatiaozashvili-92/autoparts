@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { OtpChallenge } from '@autoparts/api-client';
 import { useSession } from '../../lib/session';
+import { homeFor } from '../../lib/workspace';
 import { ErrorNote } from '../../components/shell';
 
 /**
@@ -91,8 +92,11 @@ function LoginForm() {
         code,
         firstName: firstName.trim() || undefined,
       });
-      await refreshMe();
-      router.push(next);
+      // Where they land depends on who they are: a partner has no use for the
+      // customer home page, and neither does an admin. An explicit `next`
+      // still wins, since that means they were already headed somewhere.
+      const signedIn = await refreshMe();
+      router.push(params.get('next') ?? homeFor(signedIn));
     } catch (err) {
       setError(err);
       // A rejected code is almost always a typo. Clearing it saves a select-all

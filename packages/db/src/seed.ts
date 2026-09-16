@@ -194,8 +194,12 @@ async function seedProducts(c: PoolClient): Promise<number> {
       const brandId = stableId('brand', brandName);
 
       await c.query(
-        `INSERT INTO products (id, master_part_id, brand_id, name, condition, warranty_months, country_of_origin)
-         VALUES ($1, $2, $3, $4, 'NEW', $5, $6)
+        // approved_at is set because these are the platform's own catalogue,
+        // not a partner's submission. Without it the product is inert by the
+        // rule added in 0009 and the whole seeded shop would be empty.
+        `INSERT INTO products (id, master_part_id, brand_id, name, condition, warranty_months,
+                               country_of_origin, approved_at)
+         VALUES ($1, $2, $3, $4, 'NEW', $5, $6, now())
          ON CONFLICT (id) DO NOTHING`,
         [
           productId,

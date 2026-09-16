@@ -9,25 +9,32 @@ import {
   Query,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Length,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole, errors, type Principal } from '@autoparts/core';
 import { CurrentPrincipal, Public, Roles } from '../../common/common.js';
 import { PartnersService } from './partners.service.js';
 import { PartnerInventoryService } from './partner-inventory.service.js';
+import { PartnerCatalogueService } from './partner-catalogue.service.js';
+import { PartnerActiveGuard } from './partner-active.guard.js';
 import { PickupService } from '../orders/pickup.service.js';
 
 class UpdateOfferDto {
@@ -57,12 +64,46 @@ class OfferQuery {
   @IsOptional() @IsInt() limit?: number;
 }
 
+class ProductIdentifierDto {
+  @IsIn(['OEM', 'MPN', 'EAN']) kind!: 'OEM' | 'MPN' | 'EAN';
+  @IsString() @Length(2, 60) value!: string;
+}
+
+class CreateProductDto {
+  @IsString() @Length(1, 60) categorySlug!: string;
+  @IsString() @Length(2, 120) partName!: string;
+  @IsString() @Length(1, 120) brandName!: string;
+  @IsString() @Length(2, 200) productName!: string;
+  @IsArray() @ValidateNested({ each: true }) @Type(() => ProductIdentifierDto)
+  identifiers!: ProductIdentifierDto[];
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsInt() @Min(0) warrantyMonths?: number;
+  /** Minor units, as a string: a price is money, and money is never a float. */
+  @IsString() priceMinor!: string;
+  @IsInt() @Min(0) stockQuantity!: number;
+  @IsOptional() @IsString() @Length(1, 80) partnerSku?: string;
+  @IsOptional() @IsUUID() locationId?: string;
+}
+
+class SalesReportQuery {
+  @IsOptional() @IsString() from?: string;
+  @IsOptional() @IsString() to?: string;
+}
+
+class ProductListQuery {
+  @IsOptional() @IsBoolean() pending?: boolean;
+}
+
 @ApiTags('partner')
 @Roles(UserRole.PARTNER_USER, UserRole.PARTNER_ADMIN)
+// Re-reads the company on every request, so archiving one stops it trading at
+// once rather than whenever its fifteen-minute token happens to expire.
+@UseGuards(PartnerActiveGuard)
 @Controller('partner')
 export class PartnersController {
   constructor(
     private readonly partners: PartnersService,
+    private readonly catalogue: PartnerCatalogueService,
     private readonly inventory: PartnerInventoryService,
     private readonly pickup: PickupService,
   ) {}
@@ -99,6 +140,34 @@ export class PartnersController {
     @Body() dto: UpdateOfferDto,
   ) {
     return this.partners.updateOffer(this.partners.scopeOf(p), id, dto);
+  }
+
+  /* ── the catalogue this partner sells ── */
+
+  @Get('products')
+  @ApiOperation({ summary: "Everything this partner sells, listed and pending alike" })
+  products(@CurrentPrincipal() p: Principal, @Query() query: ProductListQuery) {
+    return this.catalogue.products(p, query);
+  }
+
+  /**
+   * Adds a part the platform does not list yet.
+   *
+   * It is created inert and goes to the admin review queue: a product with no
+   * fitment data cannot be matched to a car, so listing it would break the one
+   * promise the product makes (docs/05 §1).
+   */
+  @Post('products')
+  @Roles(UserRole.PARTNER_ADMIN)
+  @ApiOperation({ summary: 'Add a product with its price and stock' })
+  createProduct(@CurrentPrincipal() p: Principal, @Body() dto: CreateProductDto) {
+    return this.catalogue.createProduct(p, dto);
+  }
+
+  @Get('reports/sales')
+  @ApiOperation({ summary: 'Units, revenue and best sellers over a date range' })
+  salesReport(@CurrentPrincipal() p: Principal, @Query() query: SalesReportQuery) {
+    return this.catalogue.salesReport(p, query);
   }
 
   @Get('locations')

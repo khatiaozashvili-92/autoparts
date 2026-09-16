@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useSession } from '../lib/session';
+import { homeFor, navFor, showsVehicleBar, workspaceOf } from '../lib/workspace';
 
 /**
  * The vehicle picker lives in the header on every page.
@@ -67,35 +68,56 @@ function CartBadge() {
   );
 }
 
+/** Says whose interface this is, so a shared browser cannot mislead anyone. */
+const WORKSPACE_LABEL = {
+  customer: null,
+  partner: 'პარტნიორი',
+  admin: 'ადმინისტრირება',
+} as const;
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const { me, loading, signOut } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+
+  const workspace = workspaceOf(me);
+  const badge = WORKSPACE_LABEL[workspace];
+  const items = navFor(me);
 
   return (
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link href="/" className="brand">
+          <Link href={homeFor(me)} className="brand">
             autoparts
+            {badge && <span className="workspace-badge">{badge}</span>}
           </Link>
-          <VehicleBar />
+
+          {/*
+            Only the customer gets the car picker. A partner keeping their
+            stock up to date and an admin approving a product have no car in
+            this product, and a header that implies otherwise is clutter that
+            makes the tool look like it was built for someone else.
+          */}
+          {showsVehicleBar(me) && <VehicleBar />}
+
           <nav className="nav">
             {me ? (
               <>
-                {me.partnerId && (
-                  <Link href="/partner" className="nav-link">
-                    პარტნიორი
+                {items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={
+                      pathname === item.href || pathname.startsWith(item.href + '/')
+                        ? 'nav-link nav-link-active'
+                        : 'nav-link'
+                    }
+                  >
+                    {item.label}
                   </Link>
-                )}
-                {me.roles.some((r) => r.startsWith('PLATFORM_') || r === 'SUPER_ADMIN') && (
-                  <Link href="/admin" className="nav-link">
-                    ადმინი
-                  </Link>
-                )}
-                <Link href="/orders" className="nav-link">
-                  შეკვეთები
-                </Link>
-                <CartBadge />
+                ))}
+                {workspace === 'customer' && <CartBadge />}
                 <button
                   className="nav-link nav-button"
                   onClick={async () => {

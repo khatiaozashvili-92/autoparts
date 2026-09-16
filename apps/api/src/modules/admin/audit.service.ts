@@ -11,7 +11,11 @@ export type AuditAction =
   | 'PARTNER_ACTION'
   | 'ADMIN_ACTION'
   | 'COMMISSION_CHANGE'
-  | 'USER_ACTION';
+  | 'USER_ACTION'
+  // Categories and the partner-product review queue.
+  | 'CATALOG_ACTION'
+  // Granting or revoking a partner portal role.
+  | 'ROLE_ACTION';
 
 /**
  * Audit trail (PRD §79).

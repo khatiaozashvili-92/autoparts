@@ -74,7 +74,7 @@ interface SessionValue {
   locale: Locale;
   setLocale(locale: Locale): void;
   t(key: string): string;
-  refreshMe(): Promise<void>;
+  refreshMe(): Promise<Me | null>;
   signOut(): Promise<void>;
   /** The car every part search is answered for (PRD §14). */
   vehicles: GarageVehicle[];
@@ -125,14 +125,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [api]);
 
-  const refreshMe = useCallback(async () => {
+  /**
+   * Reloads the signed-in user, and hands them back.
+   *
+   * The return value matters at sign-in: where someone lands depends on which
+   * workspace they belong to, and reading `me` from context right there would
+   * give the previous render's value, which is still null.
+   */
+  const refreshMe = useCallback(async (): Promise<Me | null> => {
     try {
       const user = await api.me();
       setMe(user);
       await reloadGarage();
+      return user;
     } catch {
       setMe(null);
       setVehicles([]);
+      return null;
     } finally {
       setLoading(false);
     }

@@ -525,3 +525,112 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12px; }
   border-radius: 8px;
   font-size: 13px;
 }
+
+/* ─────────────── workspaces (customer / partner / admin) ─────────────── */
+
+/*
+ * Which of the three products you are looking at.
+ *
+ * Worth a visible mark rather than leaving it to the nav: the same browser and
+ * the same account can hold more than one role, and someone changing a price
+ * should never be in doubt about whose catalogue they are changing it in.
+ */
+.workspace-badge {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background: var(--accent);
+  vertical-align: 2px;
+}
+
+.nav-link-active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The row of numbers at the top of the partner and admin overviews. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+/* Tables are the partner and admin workspaces' main surface. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.data-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+
+/* A table can be wider than a phone; only it scrolls, never the page. */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pill-live { background: rgba(60, 180, 120, 0.15); color: #3cb478; }
+.pill-pending { background: rgba(230, 170, 60, 0.15); color: #e6aa3c; }
+.pill-off { background: rgba(140, 150, 165, 0.15); color: var(--muted); }
+
+.stock-input {
+  width: 72px;
+  padding: 5px 7px;
+  font-size: 13px;
+  text-align: right;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.inline-form label { flex: 1 1 160px; }

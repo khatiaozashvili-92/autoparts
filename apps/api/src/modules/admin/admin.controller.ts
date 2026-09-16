@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -9,11 +20,15 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
+  MaxLength,
 } from 'class-validator';
 import { Permission, UserRole, type Principal } from '@autoparts/core';
 import { CurrentPrincipal, RequirePermissions, Roles } from '../../common/common.js';
 import { AdminService, type ConflictAction } from './admin.service.js';
 import { AuditService } from './audit.service.js';
+import { CatalogueAdminService } from './catalogue-admin.service.js';
+import { PartnerAdminService } from './partner-admin.service.js';
 
 class ResolveConflictDto {
   @IsIn(['approve', 'reject', 'map', 'investigate']) action!: ConflictAction;
@@ -49,6 +64,48 @@ class SuspendDto {
   @IsBoolean() suspended!: boolean;
 }
 
+class CreatePartnerDto {
+  @IsString() @Length(2, 200) legalName!: string;
+  @IsString() @Length(2, 200) displayName!: string;
+  @IsOptional() @IsString() @MaxLength(50) taxId?: string;
+  @IsOptional() @IsString() @MaxLength(200) contactEmail?: string;
+  @IsOptional() @IsString() @MaxLength(20) contactPhone?: string;
+  /** The first person who can sign in to the new portal. */
+  @IsString() @MaxLength(20) adminPhone!: string;
+  @IsOptional() @IsString() @Length(1, 80) adminFirstName?: string;
+}
+
+class PartnerUserDto {
+  @IsString() @MaxLength(20) phone!: string;
+  @IsOptional() @IsString() @Length(1, 80) firstName?: string;
+  @IsOptional() @IsIn(['PARTNER_USER', 'PARTNER_ADMIN']) role?: 'PARTNER_USER' | 'PARTNER_ADMIN';
+}
+
+class CategoryDto {
+  @IsString() @Length(2, 60) slug!: string;
+  @IsString() @Length(1, 120) nameKa!: string;
+  @IsString() @Length(1, 120) nameEn!: string;
+  @IsOptional() @IsArray() synonymsKa?: string[];
+  @IsOptional() @IsArray() synonymsEn?: string[];
+  @IsOptional() @IsArray() requiredVehicleAttributes?: string[];
+  @IsOptional() @IsInt() sortOrder?: number;
+}
+
+class CategoryUpdateDto {
+  @IsOptional() @IsString() @Length(1, 120) nameKa?: string;
+  @IsOptional() @IsString() @Length(1, 120) nameEn?: string;
+  @IsOptional() @IsArray() synonymsKa?: string[];
+  @IsOptional() @IsArray() synonymsEn?: string[];
+  @IsOptional() @IsArray() requiredVehicleAttributes?: string[];
+  @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsBoolean() active?: boolean;
+}
+
+class ProductReviewDto {
+  @IsIn(['APPROVE', 'REJECT']) decision!: 'APPROVE' | 'REJECT';
+  @IsOptional() @IsString() note?: string;
+}
+
 class DisputeDto {
   @IsUUID() orderItemId!: string;
   @IsOptional() @IsString() note?: string;
@@ -67,6 +124,8 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly audit: AuditService,
+    private readonly partnerAdmin: PartnerAdminService,
+    private readonly catalogue: CatalogueAdminService,
   ) {}
 
   /* ── the queue that matters most: unresolved, R1 hides products forever ── */
@@ -110,6 +169,101 @@ export class AdminController {
     @Body() dto: PartnerStatusDto,
   ) {
     return this.admin.setPartnerStatus(p, id, dto.status);
+  }
+
+  /**
+   * Creates a partner company and the account that will run it.
+   *
+   * SUPER_ADMIN only, and there is no self-registration route anywhere: a
+   * partner is a signed commercial relationship, so admitting one is a
+   * deliberate act by a named person (docs/09 §4).
+   */
+  @Post('partners')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Create a partner company and its first administrator' })
+  createPartner(@CurrentPrincipal() p: Principal, @Body() dto: CreatePartnerDto) {
+    return this.partnerAdmin.createPartner(p, dto);
+  }
+
+  /** Archives, never deletes: orders and audit rows reference the company. */
+  @Delete('partners/:id')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Retire a partner, taking its offers off the marketplace' })
+  archivePartner(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.partnerAdmin.archivePartner(p, id);
+  }
+
+  @Get('partners/:id/users')
+  @ApiOperation({ summary: 'Who can act for this partner' })
+  partnerUsers(@Param('id', ParseUUIDPipe) id: string) {
+    return this.partnerAdmin.partnerUsers(id);
+  }
+
+  @Post('partners/:id/users')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Give a phone number access to this partner portal' })
+  addPartnerUser(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PartnerUserDto,
+  ) {
+    return this.partnerAdmin.addPartnerUser(p, id, dto);
+  }
+
+  @Delete('partners/:id/users/:userId')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Revoke one person without touching the company' })
+  removePartnerUser(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.partnerAdmin.removePartnerUser(p, id, userId);
+  }
+
+  /* ── categories ── */
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Every category, with how much is filed under it' })
+  categories() {
+    return this.catalogue.categories();
+  }
+
+  @Post('categories')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Add a category' })
+  createCategory(@CurrentPrincipal() p: Principal, @Body() dto: CategoryDto) {
+    return this.catalogue.createCategory(p, dto);
+  }
+
+  @Patch('categories/:id')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Rename, reorder, retire, or change required attributes' })
+  updateCategory(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CategoryUpdateDto,
+  ) {
+    return this.catalogue.updateCategory(p, id, dto);
+  }
+
+  /* ── the partner-product review queue ── */
+
+  @Get('products/pending')
+  @ApiOperation({ summary: 'Products partners added that nobody has cleared for sale' })
+  pendingProducts() {
+    return this.catalogue.pendingProducts();
+  }
+
+  @Post('products/:id/review')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Clear a partner product for sale, or refuse it' })
+  reviewProduct(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ProductReviewDto,
+  ) {
+    return this.catalogue.reviewProduct(p, id, dto.decision, dto.note);
   }
 
   /* ── pricing ── */

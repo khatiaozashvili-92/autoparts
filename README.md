@@ -154,6 +154,46 @@ in your local `.env`; the shipped default of 5 is the product's.
 | `e2e-purchase` | offers, cart, reservation, payment, pickup, refund |
 | `e2e-admin` | conflicts, partners, markup, analytics, audit |
 
+## Three workspaces
+
+One deployment, three different jobs. Roles decide what the API will answer
+(docs/07 §5); this decides what the interface offers, which is a separate
+question — the API refusing a request is a safety net, not a design.
+
+| | Customer | Partner admin | Super admin |
+|---|---|---|---|
+| Vehicle bar, garage, search, cart | ✅ | ❌ | ❌ |
+| Add products, edit stock and prices | ❌ | ✅ | ❌ |
+| Sales report | ❌ | ✅ (own only) | — |
+| Categories | ❌ | ❌ | ✅ |
+| Create / retire partner companies | ❌ | ❌ | ✅ |
+
+Signing in lands each of them in their own place: `/`, `/partner`, `/admin`.
+
+**A partner cannot register itself** — there is no route for it anywhere. Being
+on this marketplace is a commercial relationship, so a super admin creates the
+company and its first administrator together, by phone number. A company nobody
+can sign in to is not a company.
+
+**Retiring a partner archives it, never deletes it.** Offers, orders and audit
+rows reference it, and a company that traded for a year cannot be made never to
+have existed. Archiving takes its offers off the marketplace and its people out
+of the portal, which is every effect a deletion was wanted for.
+
+### Why a partner's new product waits for review
+
+The catalogue used to be entirely the platform's: partners priced products that
+already existed, matched by OEM number (ADR-004). That is what makes "only
+parts confirmed to fit" true.
+
+A partner can now add a product too — and a part nobody has established fitment
+for cannot be matched to any car, so listing it would break exactly that
+promise. So a partner-created product is born inert (`approved_at IS NULL`,
+`active = false`, held together by a CHECK constraint), the partner can price
+and stock it, no customer sees it, and it waits in the admin queue. Approving is
+refused outright while it still has no fitment data, because an approved product
+with none is invisible anyway.
+
 ## Demo deployment
 
 A single Ubuntu droplet runs the whole thing: nginx in front, both Node
