@@ -1,3 +1,6 @@
+import { HttpSmsProvider, type HttpSmsConfig } from './http.provider.js';
+import { TwilioSmsProvider } from './twilio.provider.js';
+
 /**
  * SMS provider seam (docs/08 §5).
  *
@@ -80,15 +83,37 @@ export class FailingSmsProvider implements SmsProvider {
   }
 }
 
-export function createSmsProvider(name: string): SmsProvider {
+/**
+ * Everything a real gateway needs, read from configuration.
+ *
+ * Passed in rather than read from `process.env` here, so this package stays
+ * free of any opinion about where configuration comes from — the API's
+ * `loadConfig` is the one place the environment is parsed and validated.
+ */
+export interface SmsProviderOptions {
+  twilio?: { accountSid: string; authToken: string; from: string };
+  http?: HttpSmsConfig;
+}
+
+export function createSmsProvider(name: string, options: SmsProviderOptions = {}): SmsProvider {
   switch (name) {
     case 'console':
       return new ConsoleSmsProvider();
     case 'failing':
       return new FailingSmsProvider();
+    case 'twilio':
+      if (!options.twilio) {
+        throw new Error('SMS_PROVIDER=twilio needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM.');
+      }
+      return new TwilioSmsProvider(options.twilio);
+    case 'http':
+      if (!options.http) {
+        throw new Error('SMS_PROVIDER=http needs at least SMS_HTTP_URL, SMS_HTTP_TO_PARAM and SMS_HTTP_TEXT_PARAM.');
+      }
+      return new HttpSmsProvider(options.http);
     default:
       throw new Error(
-        `Unknown SMS provider "${name}". Configure SMS_PROVIDER to one of: console, failing.`,
+        `Unknown SMS provider "${name}". Configure SMS_PROVIDER to one of: console, failing, twilio, http.`,
       );
   }
 }

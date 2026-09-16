@@ -5,3 +5,5 @@ export * from './fitment/provider-chain.js';
 export * from './partner/partner-integration.js';
 export * from './payment/payment-provider.js';
 export * from './sms/sms-provider.js';
+export * from './sms/twilio.provider.js';
+export * from './sms/http.provider.js';

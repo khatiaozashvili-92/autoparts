@@ -44,6 +44,31 @@ const schema = z.object({
   PAYMENT_PROVIDER: z.string().default('mock'),
   SMS_PROVIDER: z.string().default('console'),
 
+  // Twilio. Needs no local company to sign up, so it is the gateway that can
+  // be switched on the same day a decision is made.
+  TWILIO_ACCOUNT_SID: z.string().optional().default(''),
+  TWILIO_AUTH_TOKEN: z.string().optional().default(''),
+  TWILIO_FROM: z.string().optional().default(''),
+
+  // A configurable HTTP gateway, which is the shape nearly every Georgian
+  // bulk-SMS aggregator exposes: one URL and a few query parameters. The
+  // parameter NAMES differ per vendor, so they are configuration rather than
+  // code -- onboarding a supplier must not need a deploy (docs/02 7.1).
+  SMS_HTTP_URL: z.string().optional().default(''),
+  SMS_HTTP_METHOD: z.enum(['GET', 'POST']).optional().default('GET'),
+  SMS_HTTP_TO_PARAM: z.string().optional().default('destination'),
+  SMS_HTTP_TEXT_PARAM: z.string().optional().default('content'),
+  SMS_HTTP_SENDER_PARAM: z.string().optional().default('sender'),
+  SMS_HTTP_SENDER: z.string().optional().default(''),
+  SMS_HTTP_KEY_PARAM: z.string().optional().default('key'),
+  SMS_HTTP_KEY: z.string().optional().default(''),
+  SMS_HTTP_AUTH_HEADER: z.string().optional().default(''),
+  // Several local gateways reject E.164 with the plus still attached.
+  SMS_HTTP_STRIP_PLUS: boolFromEnv(true),
+  // These gateways often answer 200 OK and put the real outcome in the body,
+  // so the status code alone cannot be trusted.
+  SMS_HTTP_SUCCESS_PATTERN: z.string().optional().default(''),
+
   DEFAULT_COUNTRY: z.string().length(2).default('GE'),
   DEFAULT_CURRENCY: z.string().length(3).default('GEL'),
   DEFAULT_LOCALE: z.string().default('ka'),
