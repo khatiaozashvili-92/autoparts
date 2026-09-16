@@ -141,6 +141,59 @@ export class CatalogueAdminService {
     });
   }
 
+  /* ───────────────────────── inventory oversight ───────────────────────── */
+
+  /**
+   * Stock across every partner.
+   *
+   * Read-only on purpose. Platform staff need to see what the marketplace
+   * actually has — what is stale, what is out of stock, who is not keeping up
+   * — but a price belongs to the partner who set it. An admin quietly editing
+   * one would leave that partner selling at a number they never agreed to.
+   */
+  async inventory(filter: { stale?: boolean; search?: string; limit?: number } = {}) {
+    return this.db.query(
+      `SELECT o.id AS offer_id, o.base_price_minor, o.platform_markup_minor, o.currency,
+              o.stock_quantity, o.availability_status::text AS availability,
+              o.is_stale, o.last_synced_at, o.active,
+              p.id AS product_id, p.name AS product, p.approved_at,
+              b.name AS brand, c.slug AS category_slug,
+              pa.id AS partner_id, pa.display_name AS partner
+       FROM offers o
+       JOIN products p ON p.id = o.product_id
+       JOIN brands b ON b.id = p.brand_id
+       JOIN master_parts mp ON mp.id = p.master_part_id
+       JOIN categories c ON c.id = mp.category_id
+       JOIN partners pa ON pa.id = o.partner_id
+       WHERE pa.archived_at IS NULL
+         AND ($1::boolean IS NULL OR o.is_stale = $1)
+         AND ($2::text IS NULL OR p.name ILIKE '%' || $2 || '%'
+              OR pa.display_name ILIKE '%' || $2 || '%')
+       -- Worst first: stale stock, then whatever has run out. That is the
+       -- order somebody opening this page needs to act in.
+       ORDER BY o.is_stale DESC, o.stock_quantity ASC, p.name
+       LIMIT $3`,
+      [filter.stale ?? null, filter.search ?? null, Math.min(filter.limit ?? 100, 500)],
+    );
+  }
+
+  /** Headline numbers for the marketplace's stock as a whole. */
+  async inventorySummary() {
+    const [row] = await this.db.query<Record<string, string>>(
+      `SELECT
+         count(*)::text AS offers,
+         count(*) FILTER (WHERE o.stock_quantity = 0)::text AS out_of_stock,
+         count(*) FILTER (WHERE o.is_stale)::text AS stale,
+         count(DISTINCT o.partner_id)::text AS partners,
+         count(*) FILTER (WHERE p.approved_at IS NULL)::text AS pending_products
+       FROM offers o
+       JOIN products p ON p.id = o.product_id
+       JOIN partners pa ON pa.id = o.partner_id
+       WHERE o.active AND pa.archived_at IS NULL`,
+    );
+    return row ?? {};
+  }
+
   /* ─────────────────── the partner-product review queue ─────────────────── */
 
   /**

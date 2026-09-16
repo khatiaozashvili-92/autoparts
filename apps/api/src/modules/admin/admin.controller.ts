@@ -247,6 +247,30 @@ export class AdminController {
     return this.catalogue.updateCategory(p, id, dto);
   }
 
+  /* ── inventory across every partner ── */
+
+  /**
+   * Read-only on purpose. Staff need to see what the marketplace actually
+   * has; a price belongs to the partner who set it, and an admin quietly
+   * editing one would leave them selling at a number they never agreed to.
+   */
+  @Get('inventory')
+  @ApiOperation({ summary: 'Stock across every partner, worst first' })
+  inventory(
+    @Query('stale') stale?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.catalogue.inventory({
+      stale: stale === undefined ? undefined : stale === 'true',
+      search: search || undefined,
+    });
+  }
+
+  @Get('inventory/summary')
+  @ApiOperation({ summary: 'How much stock is stale, out, or waiting on review' })
+  inventorySummary() {
+    return this.catalogue.inventorySummary();
+  }
   /* ── the partner-product review queue ── */
 
   @Get('products/pending')

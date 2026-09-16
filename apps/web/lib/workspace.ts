@@ -83,6 +83,7 @@ export const NAV: Record<Workspace, NavItem[]> = {
     { href: '/admin', label: 'მიმოხილვა' },
     { href: '/admin/partners', label: 'პარტნიორები', superAdminOnly: true },
     { href: '/admin/categories', label: 'კატეგორიები' },
+    { href: '/admin/inventory', label: 'მარაგები' },
     { href: '/admin/products', label: 'პროდუქციის განხილვა' },
   ],
 };

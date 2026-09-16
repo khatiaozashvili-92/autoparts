@@ -308,10 +308,16 @@ async function seedPriceRules(c: PoolClient): Promise<number> {
 
 async function seedOffers(c: PoolClient): Promise<number> {
   const { rows: products } = await c.query<{ id: string; category_slug: string; part_key: string }>(
+    // Only the platform's own catalogue. A product a partner added is theirs
+    // and may still be waiting on review (ADR-016); inventing offers from
+    // other partners against it would put two companies on somebody else's
+    // pending submission, and would hand a stale-looking identifier to anyone
+    // who later imports a price list.
     `SELECT p.id, c.slug AS category_slug, mp.normalized_name AS part_key
      FROM products p
      JOIN master_parts mp ON mp.id = p.master_part_id
-     JOIN categories c ON c.id = mp.category_id`,
+     JOIN categories c ON c.id = mp.category_id
+     WHERE p.created_by_partner_id IS NULL AND p.approved_at IS NOT NULL`,
   );
 
   const markupByCategory: Record<string, number> = { brakes: 8, electrical: 12 };
