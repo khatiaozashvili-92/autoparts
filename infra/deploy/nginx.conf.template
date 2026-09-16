@@ -27,6 +27,21 @@ map $cookie_demo_pass $demo_ok {
     "${DEMO_PASSWORD}" 1;
 }
 
+# ---------------------------------------------------------------------------
+# The gate is guessable, so it is rate limited.
+#
+# A short demo password is a reasonable thing to want -- it gets typed by hand
+# and read out over the phone. What makes it survivable is that guessing has to
+# be slow: this address is in the public certificate transparency logs, so
+# scanners find it without anyone sharing the link.
+#
+# Five attempts a minute per address turns a four-digit password from a
+# second's work into well over a day of sustained, obvious traffic. `nodelay`
+# lets a person who mistypes once retry immediately; it is only the machine
+# grinding through every combination that gets held back.
+# ---------------------------------------------------------------------------
+limit_req_zone $binary_remote_addr zone=demo_gate:10m rate=5r/m;
+
 server {
     listen 80;
     listen [::]:80;
@@ -49,6 +64,22 @@ server {
     }
 
     location = /__unlock {
+        # burst allows a couple of fumbled attempts back to back; the sustained
+        # rate is what a script would need, and it does not get it.
+        limit_req zone=demo_gate burst=3 nodelay;
+        limit_req_status 429;
+
+        # try_files, not `return 302` directly.
+        #
+        # nginx runs `return` in the rewrite phase, which comes *before* the
+        # preaccess phase where limit_req lives — so a location that returns
+        # immediately is never rate limited at all, and the limiter above would
+        # be decoration. Handing off to a named location pushes the redirect
+        # into a later phase, so the limiter runs first and can refuse.
+        try_files /__never_exists @unlock_granted;
+    }
+
+    location @unlock_granted {
         add_header Set-Cookie "demo_pass=$arg_key; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000" always;
         return 302 https://$host/;
     }
