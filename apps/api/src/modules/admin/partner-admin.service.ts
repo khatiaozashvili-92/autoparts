@@ -132,12 +132,82 @@ export class PartnerAdminService {
    * every effect a deletion was wanted for.
    */
   async archivePartner(principal: Principal, partnerId: string) {
-    const [partner] = await this.db.query<PartnerRow>(
-      `SELECT id, legal_name, display_name, status, archived_at
-       FROM partners WHERE id = $1`,
+    const [partner] = await this.db.query<PartnerRow & { orders: string; offers: string }>(
+      `SELECT p.id, p.legal_name, p.display_name, p.status, p.archived_at,
+              (SELECT count(*) FROM partner_orders po WHERE po.partner_id = p.id)::text AS orders,
+              (SELECT count(*) FROM offers o WHERE o.partner_id = p.id)::text AS offers
+       FROM partners p WHERE p.id = $1`,
       [partnerId],
     );
     if (!partner) throw errors.notFound('Partner');
+
+    /**
+     * A company that never traded is deleted outright.
+     *
+     * Archiving exists to protect history — orders, receipts, audit rows all
+     * point at a partner, and a company that sold for a year cannot be made
+     * never to have existed. But a duplicate created by a mistyped name has no
+     * history to protect, and leaving it sitting in an "archived" list forever
+     * is not caution, it is clutter. If there is nothing to preserve, remove
+     * it and say so.
+     */
+    if (Number(partner.orders) === 0) {
+      return this.db.transaction(async (tx) => {
+        await tx.query(`DELETE FROM offers WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM inventory_syncs WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM fitment_conflicts WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM fitments WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM price_rules WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM partner_locations WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM partner_users WHERE partner_id = $1`, [partnerId]);
+
+        const roles = await tx.query<{ user_id: string }>(
+          `DELETE FROM user_roles WHERE partner_id = $1 RETURNING user_id`,
+          [partnerId],
+        );
+
+        // Products this partner added and nobody approved go with it. An
+        // approved one stays: the platform adopted it, and other partners may
+        // already be pricing it.
+        await tx.query(
+          `DELETE FROM product_identifiers WHERE product_id IN (
+             SELECT id FROM products
+             WHERE created_by_partner_id = $1 AND approved_at IS NULL
+           )`,
+          [partnerId],
+        );
+        const products = await tx.query<{ id: string }>(
+          `DELETE FROM products
+           WHERE created_by_partner_id = $1 AND approved_at IS NULL
+           RETURNING id`,
+          [partnerId],
+        );
+        await tx.query(
+          `UPDATE products SET created_by_partner_id = NULL WHERE created_by_partner_id = $1`,
+          [partnerId],
+        );
+
+        await tx.query(`DELETE FROM audit_logs WHERE partner_id = $1`, [partnerId]);
+        await tx.query(`DELETE FROM partners WHERE id = $1`, [partnerId]);
+
+        await this.audit.record({
+          actor: principal,
+          action: 'PARTNER_ACTION',
+          entityType: 'partner',
+          entityId: null,
+          before: { legalName: partner.legal_name, displayName: partner.display_name },
+          after: { deleted: true, reason: 'never traded' },
+        });
+
+        return {
+          deleted: true,
+          archived: false,
+          usersRevoked: roles.length,
+          productsRemoved: products.length,
+        };
+      });
+    }
+
     if (partner.archived_at) return { archived: true, alreadyArchived: true };
 
     return this.db.transaction(async (tx) => {

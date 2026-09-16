@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { parse } from 'csv-parse/sync';
+import { read, utils } from 'xlsx';
 import {
   normalizeRows,
   type NormalizedInventoryItem,
@@ -37,7 +38,20 @@ export class PartnerInventoryService {
     private readonly pricing: PricingService,
   ) {}
 
-  /** Parses an uploaded CSV/TSV buffer into rows. */
+  /**
+   * Parses an uploaded price list, whichever way the partner saved it.
+   *
+   * Excel's Save button writes .xlsx, not .csv — so a feature that only reads
+   * CSV asks every partner to know about "Save As → CSV UTF-8", and answers
+   * them with "0 rows" when they do the obvious thing instead. Accepting the
+   * file they actually have is the difference between a working feature and a
+   * support conversation.
+   */
+  parseSpreadsheet(buffer: Buffer, filename = ''): Record<string, string>[] {
+    if (isXlsx(buffer, filename)) return this.parseXlsx(buffer);
+    return this.parseCsv(buffer);
+  }
+
   parseCsv(buffer: Buffer): Record<string, string>[] {
     const text = stripBom(buffer.toString('utf8'));
     return parse(text, {
@@ -49,6 +63,33 @@ export class PartnerInventoryService {
       // writes semicolons under a Georgian locale.
       delimiter: detectDelimiter(text),
     }) as Record<string, string>[];
+  }
+
+  /** The first sheet of a real Excel workbook. */
+  parseXlsx(buffer: Buffer): Record<string, string>[] {
+    const workbook = read(buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) return [];
+
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return [];
+
+    // Everything as text, because the alternative is Excel's own idea of what
+    // a value means: a part number like 0012345 loses its leading zeros as a
+    // number, and a price becomes a float, which money never is.
+    const rows = utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: '',
+      raw: false,
+    });
+
+    return rows.map((row) => {
+      const out: Record<string, string> = {};
+      for (const [key, value] of Object.entries(row)) {
+        // Excel keeps trailing spaces in header cells more often than not.
+        out[String(key).trim()] = value === null || value === undefined ? '' : String(value).trim();
+      }
+      return out;
+    });
   }
 
   async importRows(
@@ -424,4 +465,21 @@ function detectDelimiter(text: string): string {
   const tabs = (header.match(/\t/g) ?? []).length;
   if (tabs > semicolons && tabs > commas) return '\t';
   return semicolons > commas ? ';' : ',';
+}
+
+/**
+ * Whether this is a real Excel workbook rather than a CSV.
+ *
+ * Decided on the bytes first and the name second. An .xlsx is a ZIP archive,
+ * so it always begins PK -- and a partner who renames a spreadsheet to
+ * .csv, or whose browser sends no useful type, is far more common than one who
+ * puts ZIP bytes in a genuine CSV.
+ */
+function isXlsx(buffer: Buffer, filename: string): boolean {
+  const zipMagic =
+    buffer.length > 4 &&
+    buffer[0] === 0x50 &&
+    buffer[1] === 0x4b &&
+    (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07);
+  return zipMagic || /.xlsx?$/i.test(filename);
 }

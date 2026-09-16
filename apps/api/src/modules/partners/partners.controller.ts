@@ -260,7 +260,7 @@ export class PartnersController {
   @Post('inventory/csv')
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
-  @ApiOperation({ summary: 'Upload a CSV/TSV price and stock file' })
+  @ApiOperation({ summary: 'Upload a price and stock file — Excel (.xlsx) or CSV' })
   async uploadCsv(
     @CurrentPrincipal() p: Principal,
     @UploadedFile() file: { buffer: Buffer; originalname: string } | undefined,
@@ -276,7 +276,26 @@ export class PartnersController {
   ) {
     if (!file) throw errors.validation({ field: 'file', reason: 'no file uploaded' });
     const partnerId = this.partners.scopeOf(p);
-    const rows = this.inventory.parseCsv(file.buffer);
+    let rows: Record<string, string>[];
+    try {
+      rows = this.inventory.parseSpreadsheet(file.buffer, file.originalname);
+    } catch {
+      // A file the parser cannot open at all. Saying so beats recording a
+      // sync of zero rows, which reads as "nothing in my file was valid"
+      // and sends the partner hunting through their data for a problem that
+      // is in the file format.
+      throw errors.validation({
+        field: 'file',
+        reason: 'the file could not be read as a spreadsheet',
+      });
+    }
+
+    if (rows.length === 0) {
+      throw errors.validation({
+        field: 'file',
+        reason: 'no rows found -- check the first sheet has a header row',
+      });
+    }
 
     // Multipart fields arrive as strings, so this is a string comparison and
     // not a cast: `Boolean("false")` is true, and that would silently turn

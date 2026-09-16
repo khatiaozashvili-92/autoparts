@@ -97,22 +97,40 @@ export default function AdminPartnersPage() {
   async function archive(partner: PartnerRow) {
     // Confirmed in the browser because it takes a company's whole catalogue
     // off the marketplace at once.
+    // A company that never traded is removed outright; one that has is
+    // archived, because its orders and receipts point back at it. Saying which
+    // is about to happen matters: "delete" and "hide from the list" are very
+    // different promises, and the button that made them indistinguishable is
+    // what made this feature look broken.
+    const hasTraded = Number(partner.orders) > 0;
     const sure = window.confirm(
-      `„${partner.display_name}" ამოირთვება: მისი შეთავაზებები ბაზრიდან ქრება და ` +
-        'თანამშრომლები პორტალს კარგავენ. შეკვეთების ისტორია რჩება. გავაგრძელო?',
+      hasTraded
+        ? `„${partner.display_name}" ამოირთვება: შეთავაზებები ბაზრიდან ქრება და ` +
+            `თანამშრომლები პორტალს კარგავენ. ${partner.orders} შეკვეთის ისტორია რჩება, ` +
+            'რადგან მათზე ქვითრები და თანხებია მიბმული. გავაგრძელო?'
+        : `„${partner.display_name}" სრულად წაიშლება. ამ კომპანიას შეკვეთა არ ჰქონია, ` +
+            'ამიტომ შესანახი არაფერია. გავაგრძელო?',
     );
     if (!sure) return;
 
     setBusy(true);
     setError(null);
     try {
-      const result = await api.request<{ offersDeactivated: number; usersRevoked: number }>(
-        `/admin/partners/${partner.id}`,
-        { method: 'DELETE' },
-      );
+      const result = await api.request<{
+        deleted?: boolean;
+        offersDeactivated?: number;
+        usersRevoked?: number;
+        productsRemoved?: number;
+      }>(`/admin/partners/${partner.id}`, { method: 'DELETE' });
+
       setNotice(
-        `ამოირთო. ${result.offersDeactivated} შეთავაზება გაითიშა, ` +
-          `${result.usersRevoked} მომხმარებელს წაერთვა წვდომა.`,
+        result.deleted
+          ? `წაიშალა. ${result.usersRevoked ?? 0} მომხმარებელს წაერთვა წვდომა` +
+              (result.productsRemoved
+                ? `, ${result.productsRemoved} განუხილველი პროდუქტი წაიშალა.`
+                : '.')
+          : `ამოირთო. ${result.offersDeactivated ?? 0} შეთავაზება გაითიშა, ` +
+              `${result.usersRevoked ?? 0} მომხმარებელს წაერთვა წვდომა. ისტორია რჩება.`,
       );
       await load();
     } catch (err) {
@@ -347,8 +365,9 @@ function PartnerRowView({
           <button type="button" className="link-button" onClick={onToggle}>
             {expanded ? 'დახურვა' : 'მომხმარებლები'}
           </button>{' '}
+          {/* The word matches what will happen, not what is convenient. */}
           <button type="button" className="link-button" onClick={onArchive} disabled={busy}>
-            ამორთვა
+            {Number(partner.orders) > 0 ? 'ამორთვა' : 'წაშლა'}
           </button>
         </td>
       </tr>

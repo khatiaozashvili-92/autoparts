@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@autoparts/core": "workspace:*",
+    "@autoparts/db": "workspace:*",
+    "@autoparts/fitment": "workspace:*",
+    "@autoparts/providers": "workspace:*",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
     "@nestjs/core": "^10.4.15",
@@ -20,24 +23,22 @@
     "@nestjs/throttler": "^6.3.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "csv-parse": "^5.6.0",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "zod": "^3.24.1",
-    "pg": "^8.13.1",
-    "@autoparts/providers": "workspace:*",
-    "@autoparts/db": "workspace:*",
-    "@autoparts/fitment": "workspace:*",
-    "csv-parse": "^5.6.0",
-    "multer": "^1.4.5-lts.1"
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
     "@nestjs/schematics": "^10.2.3",
     "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
     "@types/node": "^22.10.2",
-    "rimraf": "^6.0.1",
-    "typescript": "^5.7.2",
     "@types/pg": "^8.11.10",
-    "@types/multer": "^1.4.12"
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2"
   }
 }

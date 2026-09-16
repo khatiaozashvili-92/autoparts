@@ -147,16 +147,16 @@ export default function PartnerStockPage() {
       <h1 className="page-title">მარაგი</h1>
 
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>CSV ატვირთვა</h2>
+        <h2 style={{ marginTop: 0 }}>ექსელით ატვირთვა</h2>
         <p className="muted small">
-          ფასები და მარაგი ერთ ფაილში. ატვირთვა არსებულ ნაწილებს ანახლებს — ნაცნობი OEM
-          ნომრით ვცნობთ.
+          ფასები და მარაგი ერთ ფაილში — <strong>Excel (.xlsx)</strong> ან CSV. ატვირთვა
+          არსებულ ნაწილებს ანახლებს, ნაცნობი OEM ნომრით. ქართული სწორად იკითხება.
         </p>
         <div className="inline-form">
           <input
             ref={fileInput}
             type="file"
-            accept=".csv,.tsv,text/csv"
+            accept=".xlsx,.xls,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             disabled={uploading}
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -167,7 +167,7 @@ export default function PartnerStockPage() {
             className="link-button"
             href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1/partner/inventory/template.csv`}
           >
-            შაბლონის ჩამოტვირთვა
+            შაბლონის ჩამოტვირთვა (CSV — Excel-ში იხსნება)
           </a>
         </div>
 
