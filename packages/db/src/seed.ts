@@ -84,6 +84,20 @@ export async function seed(pool: Pool): Promise<Counts> {
     counts['fitment_conflicts'] = await seedConflicts(client);
     counts['dev_users'] = await seedUsers(client, (legalName) => stableId('partner', legalName));
 
+    // Search reads `search_documents`, which is derived data rebuilt by this
+    // function — it is not a view and nothing maintains it automatically.
+    //
+    // Without this the table is whatever migration 0004 left behind, which on
+    // a fresh install is empty, because the catalogue is seeded afterwards.
+    // The result was a system that looked completely healthy and answered
+    // every search with "nothing found": the parts were all there, the index
+    // simply had no idea they existed. A seed that leaves search dead has not
+    // finished its job.
+    const [indexed] = (
+      await client.query<{ n: string }>(`SELECT rebuild_search_documents()::text AS n`)
+    ).rows;
+    counts['search_documents'] = Number(indexed?.n ?? 0);
+
     await client.query('COMMIT');
     return counts;
   } catch (error) {
