@@ -1,6 +1,9 @@
 import { VinDemo } from './vin-demo';
 
-const API_URL = process.env.API_URL ?? 'http://localhost:3001';
+// Rendered on the server, so API_URL — the internal address — is the right
+// name here. Falling back to the public one means a deployment need only set
+// one of the two.
+const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 /* ─── shapes returned by the API (docs/04) ─── */
 

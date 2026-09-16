@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 
-const API_URL = 'http://localhost:3001';
+// This runs in the visitor's browser, so it has to be the public origin. A
+// hardcoded localhost sends every request to whatever is listening on the
+// visitor's own machine, which is exactly how the first deployment broke.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 interface DecodeResponse {
   configurationId: string;

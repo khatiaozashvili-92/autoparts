@@ -10,6 +10,23 @@ sequence, architecture decisions) and
 [`docs/05-fitment-engine.md`](docs/05-fitment-engine.md) (the core of the
 product).
 
+## Live demo
+
+**<https://138.68.90.74.nip.io>** — password-gated; ask for the password.
+
+Sign in with a phone number and the six-digit code the page shows. There is no
+SMS gateway behind the demo, so the code is echoed back on screen rather than
+sent — which is also why the whole site sits behind a password.
+
+| Sign in with | What you get |
+|--------------|--------------|
+| `555 00 00 01` | the shop: VIN, garage, search, cart |
+| `555 00 00 02` | a partner portal: products, stock, sales report |
+| `555 00 00 05` | the admin: partners, categories, inventory, review queue |
+
+`WBA1J5C50FV123456` is the VIN worth trying: it is a car the platform cannot
+decide about without asking a question first.
+
 ## Requirements
 
 - Node.js 20+

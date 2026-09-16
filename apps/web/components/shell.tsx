@@ -140,7 +140,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <footer className="site-footer">
         <Link href="/status">build status</Link>
         <span> · </span>
-        <a href="http://localhost:3001/docs" target="_blank" rel="noreferrer">
+        {/* The public origin, not localhost: this link is followed by whoever
+            is looking at the page, wherever it is deployed. */}
+        <a
+          href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/docs`}
+          target="_blank"
+          rel="noreferrer"
+        >
           API
         </a>
       </footer>

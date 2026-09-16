@@ -68,6 +68,20 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Swagger sits outside the API's /api/v1 prefix, so it needs its own rule
+    # or the footer's "API" link lands on the Next app and 404s. Still behind
+    # the gate: it documents every endpoint this deployment exposes.
+    location /docs {
+        if ($demo_ok = 0) { return 302 https://$host/__gate; }
+
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         if ($demo_ok = 0) { return 302 https://$host/__gate; }
 
