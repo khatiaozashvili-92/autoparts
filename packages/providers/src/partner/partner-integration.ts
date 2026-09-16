@@ -23,6 +23,21 @@ export interface NormalizedInventoryItem {
   availability: 'IN_STOCK' | 'AVAILABLE_TO_ORDER' | 'UNAVAILABLE';
   expectedAvailabilityDays?: number | null;
   warrantyMonths?: number | null;
+  /**
+   * Where the part belongs, when the partner is loading a catalogue rather
+   * than repricing one. Only read if the row has to create a product.
+   */
+  categorySlug?: string | null;
+  /**
+   * The part TYPE, which is what fitment hangs off.
+   *
+   * Distinct from productName on purpose: "front brake pads" is a type that
+   * many brands make, while "Ferodo FDB1234 front brake pads" is one product.
+   * Filing every product under a type named after itself would give every
+   * product its own type, and fitment established for one would benefit none
+   * of the others.
+   */
+  partType?: string | null;
   /** Vehicles the partner claims this fits — a signal, never the last word (R3). */
   declaredFitment?: DeclaredFitment[];
 }
@@ -63,6 +78,10 @@ export interface FieldMapping {
   availability?: string[];
   warranty?: string[];
   expectedDays?: string[];
+  /** Only used when a partner is loading a catalogue, not pricing one. */
+  category?: string[];
+  /** The kind of part, as opposed to this particular branded item. */
+  partType?: string[];
 }
 
 export const DEFAULT_FIELD_MAPPING: Required<FieldMapping> = {
@@ -78,6 +97,10 @@ export const DEFAULT_FIELD_MAPPING: Required<FieldMapping> = {
   availability: ['availability', 'status', 'available', 'in_stock'],
   warranty: ['warranty', 'warranty_months'],
   expectedDays: ['expected_days', 'lead_time', 'eta_days'],
+  // Georgian headers too: partners write their own spreadsheets, and a file
+  // that has to be re-typed in English is a file that never gets uploaded.
+  category: ['category', 'category_slug', 'kategoria', 'კატეგორია'],
+  partType: ['part_type', 'type', 'part', 'ნაწილი'],
 };
 
 const REQUIRED = ['sku', 'name', 'brand', 'price', 'quantity'] as const;
@@ -118,6 +141,8 @@ export function normalizeRows(
       brand: pick('brand'),
       price: pick('price'),
       quantity: pick('quantity'),
+      category: pick('category'),
+      partType: pick('partType'),
     };
 
     const missing = REQUIRED.filter((f) => !values[f]);
@@ -205,6 +230,8 @@ export function normalizeRows(
     items.push({
       sku,
       identifiers,
+      categorySlug: values['category'] ?? null,
+      partType: values['partType'] ?? null,
       productName: values['name']!,
       brandName: values['brand']!,
       priceMinor,

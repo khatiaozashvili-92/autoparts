@@ -72,12 +72,14 @@ export const NAV: Record<Workspace, NavItem[]> = {
     { href: '/search', label: 'ძებნა' },
     { href: '/garage', label: 'გარაჟი' },
     { href: '/orders', label: 'შეკვეთები' },
+    { href: '/transactions', label: 'ტრანზაქციები' },
   ],
   partner: [
     { href: '/partner', label: 'მიმოხილვა' },
     { href: '/partner/products', label: 'პროდუქცია' },
     { href: '/partner/stock', label: 'მარაგი' },
     { href: '/partner/reports', label: 'გაყიდვები' },
+    { href: '/partner/transactions', label: 'ტრანზაქციები' },
   ],
   admin: [
     { href: '/admin', label: 'მიმოხილვა' },
@@ -85,6 +87,7 @@ export const NAV: Record<Workspace, NavItem[]> = {
     { href: '/admin/categories', label: 'კატეგორიები' },
     { href: '/admin/inventory', label: 'მარაგები' },
     { href: '/admin/products', label: 'პროდუქციის განხილვა' },
+    { href: '/admin/transactions', label: 'ტრანზაქციები' },
   ],
 };
 

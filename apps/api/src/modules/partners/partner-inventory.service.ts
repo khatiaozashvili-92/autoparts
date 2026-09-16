@@ -18,6 +18,8 @@ export interface ImportSummary {
   errors: RowError[];
   /** Rows that matched nothing unambiguously and need an admin (docs/06 §4). */
   pendingReview: number;
+  /** New products this upload added, all of them awaiting review. */
+  createdProducts: number;
 }
 
 interface MatchOutcome {
@@ -54,6 +56,19 @@ export class PartnerInventoryService {
     rows: Record<string, string>[],
     mode: 'CSV' | 'API' | 'MANUAL',
     fileUrl?: string,
+    /**
+     * Whether a row that matches nothing in the catalogue should create a
+     * product, or be reported as an error.
+     *
+     * Off by default, and that default matters. The routine use of this
+     * endpoint is a partner reposting their price list every morning, where a
+     * row matching nothing almost always means a typo in a part number —
+     * creating a product for it would quietly fill the catalogue with
+     * misspelled duplicates nobody can ever find. Loading a catalogue for the
+     * first time is the rarer, deliberate case, so it is the one that has to
+     * be asked for.
+     */
+    createMissing = false,
   ): Promise<ImportSummary> {
     const [partner] = await this.db.query<{
       field_mapping: Record<string, string[]>;
@@ -82,11 +97,26 @@ export class PartnerInventoryService {
 
     let ok = 0;
     let pendingReview = 0;
+    let createdProducts = 0;
 
     for (const [index, item] of items.entries()) {
       const match = await this.matchProduct(item);
 
       if (match.productId === null) {
+        // Ambiguity is never resolved by creating another one: a part number
+        // that already matches two products would become three.
+        if (createMissing && match.reason === 'NOT_FOUND') {
+          const created = await this.createProductFromRow(partnerId, item, index + 2);
+          if (created.productId) {
+            await this.upsertOffer(partnerId, partner.default_location, created.productId, item);
+            createdProducts++;
+            ok++;
+            continue;
+          }
+          errors.push(created.error!);
+          continue;
+        }
+
         pendingReview++;
         errors.push({
           row: index + 2,
@@ -135,6 +165,7 @@ export class PartnerInventoryService {
       // the full list is downloadable from the sync record.
       errors: errors.slice(0, 100),
       pendingReview,
+      createdProducts,
     };
   }
 
@@ -168,6 +199,138 @@ export class PartnerInventoryService {
       }
     }
     return { productId: null, reason: 'NOT_FOUND' };
+  }
+
+  /**
+   * Creates a product from a spreadsheet row, for a partner loading their
+   * catalogue for the first time.
+   *
+   * Born inert, exactly like one added through the form: `approved_at` null
+   * and `active` false, held that way by a CHECK constraint. A part nobody has
+   * established fitment for matches no car, so listing it would break the one
+   * promise the product makes (ADR-016). The partner gets their prices and
+   * stock loaded; the platform decides what customers are shown.
+   *
+   * Returns the row error rather than throwing, so one unusable line does not
+   * abandon the other nine hundred.
+   */
+  private async createProductFromRow(
+    partnerId: string,
+    item: NormalizedInventoryItem,
+    rowNumber: number,
+  ): Promise<{ productId: string | null; error?: RowError }> {
+    if (!item.categorySlug) {
+      return {
+        productId: null,
+        error: {
+          row: rowNumber,
+          column: 'category',
+          code: 'MISSING_CATEGORY',
+          message: 'A new product needs a category — add a "category" column',
+          value: item.productName,
+        },
+      };
+    }
+
+    const [category] = await this.db.query<{ id: string }>(
+      `SELECT id FROM categories WHERE slug = $1 AND active`,
+      [item.categorySlug.trim().toLowerCase()],
+    );
+    if (!category) {
+      return {
+        productId: null,
+        error: {
+          row: rowNumber,
+          column: 'category',
+          code: 'UNKNOWN_CATEGORY',
+          message: `No category "${item.categorySlug}" — use one of the slugs from the template`,
+          value: item.categorySlug,
+        },
+      };
+    }
+
+    try {
+      return await this.db.transaction(async (tx) => {
+        const brandNormalized = normalizeIdentifier(item.brandName);
+        const [brand] = await tx.query<{ id: string }>(
+          `INSERT INTO brands (name, normalized_name, brand_type)
+           VALUES ($1, $2, 'AFTERMARKET')
+           ON CONFLICT (normalized_name) DO UPDATE SET name = brands.name
+           RETURNING id`,
+          [item.brandName.trim(), brandNormalized],
+        );
+
+        // Filed under an existing master part where the name matches, so the
+        // fitment work already done for that part is inherited rather than
+        // starting again for every partner who stocks it.
+        //
+        // The TYPE, not the product name. "front brake pads" is a type many
+        // brands make; "Ferodo FDB1234 front brake pads" is one product. Using
+        // the product name would give every product a private type of its own,
+        // and fitment established for one would benefit none of the others —
+        // which is the entire reason master parts exist.
+        //
+        // Falls back to the product name when the file has no part_type
+        // column, because a slightly duplicated type is still better than
+        // refusing the upload outright.
+        const partKey = (item.partType ?? item.productName).trim().toLowerCase().slice(0, 120);
+        const [masterPart] = await tx.query<{ id: string }>(
+          `INSERT INTO master_parts (category_id, normalized_name)
+           SELECT $1, $2
+           WHERE NOT EXISTS (
+             SELECT 1 FROM master_parts
+             WHERE category_id = $1 AND lower(normalized_name) = $2
+           )
+           RETURNING id`,
+          [category.id, partKey],
+        );
+        const masterPartId =
+          masterPart?.id ??
+          (
+            await tx.query<{ id: string }>(
+              `SELECT id FROM master_parts
+               WHERE category_id = $1 AND lower(normalized_name) = $2 LIMIT 1`,
+              [category.id, partKey],
+            )
+          )[0]!.id;
+
+        const [product] = await tx.query<{ id: string }>(
+          `INSERT INTO products (master_part_id, brand_id, name, warranty_months,
+                                 created_by_partner_id, approved_at, active)
+           VALUES ($1, $2, $3, $4, $5, NULL, false)
+           RETURNING id`,
+          [
+            masterPartId,
+            brand!.id,
+            item.productName.trim(),
+            item.warrantyMonths ?? null,
+            partnerId,
+          ],
+        );
+
+        for (const identifier of item.identifiers) {
+          await tx.query(
+            `INSERT INTO product_identifiers (product_id, kind, value, normalized)
+             VALUES ($1, $2::identifier_kind, $3, $4)
+             ON CONFLICT DO NOTHING`,
+            [product!.id, identifier.kind, identifier.value, identifier.normalized],
+          );
+        }
+
+        return { productId: product!.id };
+      });
+    } catch (error) {
+      return {
+        productId: null,
+        error: {
+          row: rowNumber,
+          column: 'name',
+          code: 'CREATE_FAILED',
+          message: error instanceof Error ? error.message.slice(0, 160) : 'Could not create',
+          value: item.productName,
+        },
+      };
+    }
   }
 
   private async upsertOffer(

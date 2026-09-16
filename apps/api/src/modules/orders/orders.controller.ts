@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsUUID, Max, Min, IsString, IsArray } from 'class-validator';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +19,7 @@ import { CurrentPrincipal } from '../../common/common.js';
 import { CartService } from './cart.service.js';
 import { OrdersService } from './orders.service.js';
 import { PickupService } from './pickup.service.js';
+import { TransactionsService } from './transactions.service.js';
 
 class AddCartItemDto {
   @IsUUID() offerId!: string;
@@ -30,6 +43,7 @@ export class OrdersController {
     private readonly cart: CartService,
     private readonly orders: OrdersService,
     private readonly pickup: PickupService,
+    private readonly transactions: TransactionsService,
   ) {}
 
   @Get('cart')
@@ -86,6 +100,27 @@ export class OrdersController {
   @ApiOperation({ summary: 'Capture the payment after a final stock check' })
   capture(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.orders.capture(p, id);
+  }
+
+  /**
+   * What this customer paid, and what came back.
+   *
+   * Scoped from the token, never from a parameter: a customer id in a query
+   * string would let anyone read another persons money.
+   */
+  @Get('transactions')
+  @ApiOperation({ summary: 'Payments and refunds for the signed-in customer' })
+  async transactionHistory(
+    @CurrentPrincipal() p: Principal,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const scope = this.transactions.scopeFor(p, false);
+    const [rows, summary] = await Promise.all([
+      this.transactions.list(scope, { from, to }),
+      this.transactions.summary(scope, { from, to }),
+    ]);
+    return { summary, data: rows };
   }
 
   @Get('orders')

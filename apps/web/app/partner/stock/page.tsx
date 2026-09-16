@@ -42,8 +42,12 @@ export default function PartnerStockPage() {
   const [syncs, setSyncs] = useState<SyncRow[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<{ row: number; column: string; message: string }[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Off by default: the everyday use of this page is reposting a price list,
+  // where an unmatched row is almost always a typo in a part number.
+  const [createMissing, setCreateMissing] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Edits held per offer until saved, so typing in one row does not refetch
@@ -74,6 +78,7 @@ export default function PartnerStockPage() {
     try {
       const form = new FormData();
       form.append('file', file);
+      form.append('createMissing', String(createMissing));
       // FormData goes straight to fetch: the shared client always sends JSON,
       // and a multipart body is the one thing it cannot express.
       const res = await fetch(
@@ -85,12 +90,21 @@ export default function PartnerStockPage() {
         },
       );
       const result = (await res.json()) as {
-        rowsApplied?: number;
+        rowsOk?: number;
         rowsFailed?: number;
+        createdProducts?: number;
+        errors?: { row: number; column: string; message: string }[];
         error?: { messageKey: string };
       };
       if (!res.ok) throw result.error ?? new Error('upload failed');
-      setNotice(`${result.rowsApplied ?? 0} სტრიქონი აიტვირთა, ${result.rowsFailed ?? 0} ვერ.`);
+      setNotice(
+        `${result.rowsOk ?? 0} სტრიქონი აიტვირთა` +
+          (result.createdProducts
+            ? `, მათგან ${result.createdProducts} ახალი პროდუქტი — განხილვის მოლოდინშია`
+            : '') +
+          (result.rowsFailed ? `. ${result.rowsFailed} ვერ აიტვირთა.` : '.'),
+      );
+      setRowErrors(result.errors ?? []);
       await load();
     } catch (err) {
       setError(err);
@@ -149,15 +163,63 @@ export default function PartnerStockPage() {
               if (file) void upload(file);
             }}
           />
-          <a className="link-button" href="/api/v1/partner/inventory/template.csv">
+          <a
+            className="link-button"
+            href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1/partner/inventory/template.csv`}
+          >
             შაბლონის ჩამოტვირთვა
           </a>
         </div>
+
+        {/*
+          Off by default, and deliberately so. Reposting a price list is the
+          daily use of this page, and there an unmatched row is nearly always a
+          mistyped part number — creating products for those would fill the
+          catalogue with misspelled duplicates nobody can find. Loading a
+          catalogue is the rarer, deliberate act, so it is the one you ask for.
+        */}
+        <label
+          style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 14 }}
+        >
+          <input
+            type="checkbox"
+            checked={createMissing}
+            onChange={(e) => setCreateMissing(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            <strong>ახალი პროდუქტებიც დაამატე</strong>
+            <span className="muted small" style={{ display: 'block' }}>
+              მონიშნეთ პირველი ატვირთვისას, როცა კატალოგს სრულად აწყობთ. მაშინ ფაილს
+              სჭირდება <code>category</code> სვეტიც. ახალი პროდუქტი განხილვის მოლოდინში
+              ხვდება — მყიდველს დამტკიცებამდე არ უჩანს.
+            </span>
+          </span>
+        </label>
+
         {uploading && <p className="muted small">იტვირთება…</p>}
         {notice && (
           <p className="muted small" role="status">
             {notice}
           </p>
+        )}
+
+        {/*
+          Row-level errors, with the line number. A summary that only says
+          "12 rows failed" sends somebody hunting through a spreadsheet.
+        */}
+        {rowErrors.length > 0 && (
+          <div className="card offline" style={{ marginTop: 12 }}>
+            <strong>{rowErrors.length} სტრიქონი ვერ აიტვირთა</strong>
+            <ul className="muted small" style={{ marginBottom: 0 }}>
+              {rowErrors.slice(0, 12).map((e, i) => (
+                <li key={i}>
+                  სტრიქონი {e.row} · <code>{e.column}</code> — {e.message}
+                </li>
+              ))}
+              {rowErrors.length > 12 && <li>…და კიდევ {rowErrors.length - 12}</li>}
+            </ul>
+          </div>
         )}
       </div>
 

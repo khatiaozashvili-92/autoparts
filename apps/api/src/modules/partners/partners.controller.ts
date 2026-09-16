@@ -40,6 +40,7 @@ import {
   type RejectionReason,
 } from '../orders/partner-rejection.service.js';
 import { PickupService } from '../orders/pickup.service.js';
+import { TransactionsService } from '../orders/transactions.service.js';
 
 class UpdateOfferDto {
   @IsOptional() @IsString() basePriceMinor?: string;
@@ -116,6 +117,7 @@ export class PartnersController {
     private readonly rejection: PartnerRejectionService,
     private readonly inventory: PartnerInventoryService,
     private readonly pickup: PickupService,
+    private readonly transactions: TransactionsService,
   ) {}
 
   @Get('profile')
@@ -178,6 +180,21 @@ export class PartnersController {
   @ApiOperation({ summary: 'Units, revenue and best sellers over a date range' })
   salesReport(@CurrentPrincipal() p: Principal, @Query() query: SalesReportQuery) {
     return this.catalogue.salesReport(p, query);
+  }
+
+  @Get('transactions')
+  @ApiOperation({ summary: 'Money in and out on this partner orders' })
+  async transactionHistory(
+    @CurrentPrincipal() p: Principal,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const scope = this.transactions.scopeFor(p, false);
+    const [rows, summary] = await Promise.all([
+      this.transactions.list(scope, { from, to }),
+      this.transactions.summary(scope, { from, to }),
+    ]);
+    return { summary, data: rows };
   }
 
   @Get('locations')
@@ -247,11 +264,26 @@ export class PartnersController {
   async uploadCsv(
     @CurrentPrincipal() p: Principal,
     @UploadedFile() file: { buffer: Buffer; originalname: string } | undefined,
+    /**
+     * Whether rows matching nothing should create products.
+     *
+     * Asked for explicitly, never assumed: the everyday use of this endpoint
+     * is reposting a price list, where an unmatched row is almost always a
+     * typo. Creating products for those would fill the catalogue with
+     * misspelled duplicates.
+     */
+    @Body('createMissing') createMissingRaw?: string,
   ) {
     if (!file) throw errors.validation({ field: 'file', reason: 'no file uploaded' });
     const partnerId = this.partners.scopeOf(p);
     const rows = this.inventory.parseCsv(file.buffer);
-    return this.inventory.importRows(partnerId, rows, 'CSV', file.originalname);
+
+    // Multipart fields arrive as strings, so this is a string comparison and
+    // not a cast: `Boolean("false")` is true, and that would silently turn
+    // every routine price update into a catalogue-creating one.
+    const createMissing = String(createMissingRaw).toLowerCase() === 'true';
+
+    return this.inventory.importRows(partnerId, rows, 'CSV', file.originalname, createMissing);
   }
 
   @Get('inventory/syncs')
@@ -279,12 +311,20 @@ export class PartnersController {
   @ApiOperation({ summary: 'CSV template with example rows' })
   template(@Res() res: Response): void {
     const csv = [
-      'sku,oem,mpn,name,brand,price,currency,quantity,availability,warranty_months',
-      'BP-2211,34116850568,BOS12345,Front Brake Pads,Bosch,420.50,GEL,5,in_stock,24',
-      'OF-1007,11427566327,MAN55011,Oil Filter,Mann-Filter,28.00,GEL,0,available_to_order,12',
-    ].join('\n');
+      'sku,oem,mpn,name,part_type,brand,category,price,currency,quantity,availability,warranty_months',
+      'BP-2211,34116850568,BOS12345,Bosch წინა სამუხრუჭე ხუნდები,სამუხრუჭე ხუნდები,Bosch,brakes,420.50,GEL,5,in_stock,24',
+      'OF-1007,11427566327,MAN55011,Mann ზეთის ფილტრი W712,ზეთის ფილტრი,Mann-Filter,filters,28.00,GEL,0,available_to_order,12',
+    ].join('\r\n');
+
+    // A UTF-8 byte-order mark, and CRLF line endings.
+    //
+    // Excel on Windows assumes the system codepage for a .csv without a BOM,
+    // which turns every Georgian product name into gibberish the moment the
+    // file is opened — and a partner who opens the template and sees nonsense
+    // concludes the platform cannot handle Georgian. The parser strips this
+    // again on the way back in.
     res.setHeader('content-type', 'text/csv; charset=utf-8');
     res.setHeader('content-disposition', 'attachment; filename="autoparts-inventory-template.csv"');
-    res.send(csv);
+    res.send('\uFEFF' + csv);
   }
 }

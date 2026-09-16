@@ -6,10 +6,11 @@ import { ReservationService } from './reservation.service.js';
 import { paymentProviderFactory } from './payment.provider.js';
 import { PickupService } from './pickup.service.js';
 import { PartnerRejectionService } from './partner-rejection.service.js';
+import { TransactionsService } from './transactions.service.js';
 
 @Module({
   controllers: [OrdersController],
-  providers: [OrdersService, CartService, ReservationService, PickupService, PartnerRejectionService, paymentProviderFactory],
-  exports: [OrdersService, CartService, ReservationService, PickupService, PartnerRejectionService],
+  providers: [OrdersService, CartService, ReservationService, PickupService, PartnerRejectionService, TransactionsService, paymentProviderFactory],
+  exports: [OrdersService, CartService, ReservationService, PickupService, PartnerRejectionService, TransactionsService],
 })
 export class OrdersModule {}

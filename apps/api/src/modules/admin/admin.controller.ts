@@ -29,6 +29,7 @@ import { AdminService, type ConflictAction } from './admin.service.js';
 import { AuditService } from './audit.service.js';
 import { CatalogueAdminService } from './catalogue-admin.service.js';
 import { PartnerAdminService } from './partner-admin.service.js';
+import { TransactionsService } from '../orders/transactions.service.js';
 
 class ResolveConflictDto {
   @IsIn(['approve', 'reject', 'map', 'investigate']) action!: ConflictAction;
@@ -126,6 +127,7 @@ export class AdminController {
     private readonly audit: AuditService,
     private readonly partnerAdmin: PartnerAdminService,
     private readonly catalogue: CatalogueAdminService,
+    private readonly transactions: TransactionsService,
   ) {}
 
   /* ── the queue that matters most: unresolved, R1 hides products forever ── */
@@ -219,6 +221,23 @@ export class AdminController {
     @Param('userId', ParseUUIDPipe) userId: string,
   ) {
     return this.partnerAdmin.removePartnerUser(p, id, userId);
+  }
+
+  /* ── every transaction on the marketplace ── */
+
+  @Get('transactions')
+  @ApiOperation({ summary: 'Every payment and refund, with the platform commission' })
+  async transactionHistory(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    // Platform scope: the only one that sees what the platform kept.
+    const scope = { kind: 'platform' } as const;
+    const [rows, summary] = await Promise.all([
+      this.transactions.list(scope, { from, to }),
+      this.transactions.summary(scope, { from, to }),
+    ]);
+    return { summary, data: rows };
   }
 
   /* ── categories ── */

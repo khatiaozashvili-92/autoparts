@@ -251,18 +251,33 @@ export class PartnerCatalogueService {
     return { range: { from, to }, totals, daily, topProducts };
   }
 
-  /** Reuses a brand by name, so two partners spelling it the same share one. */
+  /**
+   * Reuses a brand by name, so two partners spelling it the same share one.
+   *
+   * Matched on `normalized_name`, which is the column carrying the unique
+   * index — "TRW", "trw" and "T.R.W." are one brand, and letting them become
+   * three would split the same maker's parts across the catalogue.
+   */
   private async ensureBrand(tx: TransactionClient, name: string): Promise<string> {
     const trimmed = name.trim();
+    const normalized = normalizeIdentifier(trimmed);
+
     const [existing] = await tx.query<{ id: string }>(
-      `SELECT id FROM brands WHERE lower(name) = lower($1)`,
-      [trimmed],
+      `SELECT id FROM brands WHERE normalized_name = $1`,
+      [normalized],
     );
     if (existing) return existing.id;
 
+    // AFTERMARKET rather than UNKNOWN: a brand a partner typed in is one they
+    // stock, and the schema's own default says the same. Whether it is really
+    // an OEM brand is a catalogue decision for the platform, made when the
+    // product is reviewed.
     const [created] = await tx.query<{ id: string }>(
-      `INSERT INTO brands (name, type) VALUES ($1, 'UNKNOWN') RETURNING id`,
-      [trimmed],
+      `INSERT INTO brands (name, normalized_name, brand_type)
+       VALUES ($1, $2, 'AFTERMARKET')
+       ON CONFLICT (normalized_name) DO UPDATE SET name = brands.name
+       RETURNING id`,
+      [trimmed, normalized],
     );
     if (!created) throw errors.internal();
     return created.id;

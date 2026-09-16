@@ -156,6 +156,16 @@ export class SearchService {
               ts_rank(content_tsv, plainto_tsquery('simple', $1)) AS rank
        FROM search_documents
        WHERE locale = $2 AND content_tsv @@ plainto_tsquery('simple', $1)
+         -- A part type with nothing sellable under it must never win a
+         -- search. It matches the words perfectly and then hands back an
+         -- empty page -- a dead end that reads as "this site is broken".
+         -- Partner-added products are inactive until reviewed, so without
+         -- this a single pending upload can shadow a real part type.
+         AND EXISTS (
+           SELECT 1 FROM products prod
+           WHERE prod.master_part_id = search_documents.master_part_id
+             AND prod.active
+         )
        ORDER BY rank DESC
        LIMIT 1`,
       [normalized, locale],
@@ -190,6 +200,16 @@ export class SearchService {
               word_similarity(translit_ka($1), content_translit) AS sim
        FROM search_documents
        WHERE locale = $2 AND translit_ka($1) <% content_translit
+         -- A part type with nothing sellable under it must never win a
+         -- search. It matches the words perfectly and then hands back an
+         -- empty page -- a dead end that reads as "this site is broken".
+         -- Partner-added products are inactive until reviewed, so without
+         -- this a single pending upload can shadow a real part type.
+         AND EXISTS (
+           SELECT 1 FROM products prod
+           WHERE prod.master_part_id = search_documents.master_part_id
+             AND prod.active
+         )
        ORDER BY sim DESC
        LIMIT 1`,
       [normalized, locale],
