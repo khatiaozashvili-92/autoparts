@@ -48,7 +48,18 @@ export function uniquePhone() {
  * it in keeps this module free of any opinion about the base URL or headers.
  */
 export async function signIn(call, phone, { firstName } = {}) {
-  const requested = await call('/auth/otp/request', { method: 'POST', body: { phone } });
+  let requested = await call('/auth/otp/request', { method: 'POST', body: { phone } });
+
+  // One code a minute, per number. The suites share the seeded accounts, so a
+  // few seconds of overlap between them is normal and not a failure -- waiting
+  // it out is what a person would do. A long wait still fails fast, because
+  // that means something is genuinely wrong rather than merely busy.
+  const retryAfter = requested.body?.error?.details?.retryAfter;
+  if (requested.status === 429 && typeof retryAfter === 'number' && retryAfter <= 15) {
+    await new Promise((resolve) => setTimeout(resolve, (retryAfter + 1) * 1000));
+    requested = await call('/auth/otp/request', { method: 'POST', body: { phone } });
+  }
+
   if (requested.status !== 200) {
     throw new Error(`OTP request for ${phone} failed: ${requested.status} ${requested.raw}`);
   }
