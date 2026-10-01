@@ -1,11 +1,11 @@
 # ფილიალის დღიური ფინანსური ანგარიში
 
-React + Vite + Supabase, ჰოსტინგი Vercel-ზე. ჩეკის წაკითხვა: `api/read-receipt.ts` (Claude vision).
+React + Vite + Supabase, ჰოსტინგი Vercel-ზე. ჩეკის წაკითხვა: `api/read-receipt.ts` (OpenRouter vision მოდელი).
 
 ## გაშვება
 1. Supabase-ში შექმენით პროექტი და SQL Editor-ში გაუშვით `supabase/schema.sql`.
 2. Vercel-ზე დააიმპორტეთ რეპო, **Root Directory = `branch-finance`**.
-3. Vercel → Environment Variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `ANTHROPIC_API_KEY`.
+3. Vercel → Environment Variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `OPENROUTER_API_KEY`, `RECEIPT_MODEL`.
 4. ლოკალურად: `cp .env.example .env.local`, `npm install`, `npm run dev` (ჩეკის წაკითხვა მუშაობს მხოლოდ `vercel dev`-ით).
 
 ## წესები

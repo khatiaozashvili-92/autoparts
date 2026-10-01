@@ -1,5 +1,6 @@
 // Vercel serverless function: ჩეკის ფოტოდან მონაცემების წაკითხვა (Claude vision).
-// ANTHROPIC_API_KEY ინახება მხოლოდ Vercel-ის გარემოს ცვლადებში.
+// OPENROUTER_API_KEY ინახება მხოლოდ Vercel-ის გარემოს ცვლადებში.
+// მოდელი იცვლება RECEIPT_MODEL ცვლადით (იხ. openrouter.ai/models).
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const PROMPT = `You are reading ONE photo of a Georgian purchase receipt. Return ONLY a JSON object, no prose:
@@ -22,24 +23,26 @@ Rules:
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
-  const key = process.env.ANTHROPIC_API_KEY
-  if (!key) return res.status(500).json({ error: 'ANTHROPIC_API_KEY არ არის დაყენებული' })
+  const key = process.env.OPENROUTER_API_KEY
+  const model = process.env.RECEIPT_MODEL
+  if (!key || !model) return res.status(500).json({ error: 'OPENROUTER_API_KEY ან RECEIPT_MODEL არ არის დაყენებული' })
 
   const image = (req.body as { image?: string })?.image
   if (!image) return res.status(400).json({ error: 'image missing' })
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.RECEIPT_MODEL || 'claude-sonnet-5-5',
+        model,
         max_tokens: 400,
+        temperature: 0,
         messages: [
           {
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
+              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } },
               { type: 'text', text: PROMPT },
             ],
           },
@@ -47,8 +50,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
     })
     if (!r.ok) return res.status(502).json({ error: `AI error ${r.status}` })
-    const j = (await r.json()) as { content: { type: string; text?: string }[] }
-    const text = j.content.find((c) => c.type === 'text')?.text ?? ''
+    const j = (await r.json()) as { choices?: { message?: { content?: string } }[] }
+    const text = j.choices?.[0]?.message?.content ?? ''
     const m = text.match(/\{[\s\S]*\}/)
     if (!m) return res.status(502).json({ error: 'bad AI response' })
     return res.status(200).json(JSON.parse(m[0]))
